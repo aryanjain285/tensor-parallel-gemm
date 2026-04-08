@@ -14,3 +14,8 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.9",
+]

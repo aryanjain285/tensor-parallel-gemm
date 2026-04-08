@@ -77,7 +77,37 @@ While vendor-tuned libraries such as cuBLAS @nvidia_cublas_2026 deliver near-opt
 + Building a distributed tensor-parallel linear layer (forward and backward) using NCCL, including a complete parallel MLP block.
 + Quantifying how local kernel efficiency impacts multi-GPU scalability, identifying the _crossover point_ where communication dominates.
 
-All experiments are conducted on 8$times$NVIDIA H100 80GB HBM3 GPUs with NVLink interconnect.
+All experiments are conducted on the hardware described in @sec:setup.
+
+== Experimental Setup <sec:setup>
+
+@tab:setup summarizes the hardware and software environment used for all experiments.
+
+#figure(
+  table(
+    columns: (auto, auto),
+    inset: 6pt,
+    align: (left, left),
+    stroke: none,
+    table.hline(),
+    table.header([*Component*], [*Specification*]),
+    table.hline(stroke: 0.5pt),
+    [GPU], [8 $times$ NVIDIA H100 80GB HBM3 (SXM5)],
+    [GPU Interconnect], [NVLink 4.0, all-to-all NV18 (900 GB/s bidirectional per GPU)],
+    [GPU Compute], [132 SMs, 1980 MHz boost, sm\_90, 33.5 TFLOPS FP32 peak],
+    [GPU Memory], [80 GB HBM3, $tilde$3.35 TB/s bandwidth per GPU],
+    [CPU], [2 $times$ Intel Xeon Gold 6448Y (32 cores / 64 threads each, 128 threads total)],
+    [System Memory], [2 TB DDR5],
+    [OS], [Ubuntu 24.04.4 LTS (kernel 5.14.0)],
+    [CUDA Toolkit], [13.1],
+    [NCCL], [2.29.3],
+    [GPU Driver], [550.90.07],
+    table.hline(),
+  ),
+  caption: [Hardware and software configuration.],
+) <tab:setup>
+
+The 8 GPUs are fully connected via NVLink 4.0 with NV18 topology (18 NVLink connections per GPU pair), distributed across 2 NUMA nodes (GPUs 0--3 on NUMA 0, GPUs 4--7 on NUMA 1). This provides a uniform high-bandwidth, low-latency interconnect for NCCL collectives, eliminating PCIe bottlenecks.
 
 // ═════════════════════════════════════════════════════════════════════
 = Background

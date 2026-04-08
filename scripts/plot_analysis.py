@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,32 +16,46 @@ FIGS = ROOT / "results" / "figures"
 FIGS.mkdir(parents=True, exist_ok=True)
 
 # ── Style ─────────────────────────────────────────────────────────────────
-plt.rcParams.update({
-    "font.family": "serif",
-    "font.size": 10,
-    "axes.titlesize": 12,
-    "axes.labelsize": 11,
-    "legend.fontsize": 8.5,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
-    "figure.dpi": 200,
-    "savefig.bbox": "tight",
-    "savefig.pad_inches": 0.05,
-    "axes.grid": True,
-    "grid.alpha": 0.25,
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-})
+plt.rcParams.update(
+    {
+        "font.family": "serif",
+        "font.size": 10,
+        "axes.titlesize": 12,
+        "axes.labelsize": 11,
+        "legend.fontsize": 8.5,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+        "figure.dpi": 200,
+        "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.05,
+        "axes.grid": True,
+        "grid.alpha": 0.25,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+    }
+)
 
 KERNEL_ORDER = [
-    "1_naive", "2_coalesced", "2_uncoalesced", "3_smem",
-    "4_1d_blocktile", "5_2d_blocktile", "6_vectorized", "7_warptile", "cuBLAS",
+    "1_naive",
+    "2_coalesced",
+    "2_uncoalesced",
+    "3_smem",
+    "4_1d_blocktile",
+    "5_2d_blocktile",
+    "6_vectorized",
+    "7_warptile",
+    "cuBLAS",
 ]
 KERNEL_LABELS = {
-    "1_naive": "Naive", "2_coalesced": "Coalesced", "2_uncoalesced": "Uncoalesced",
-    "3_smem": "Shared Mem", "4_1d_blocktile": "1D BlockTile",
-    "5_2d_blocktile": "2D BlockTile", "6_vectorized": "Vectorized",
-    "7_warptile": "WarpTile", "cuBLAS": "cuBLAS",
+    "1_naive": "Naive",
+    "2_coalesced": "Coalesced",
+    "2_uncoalesced": "Uncoalesced",
+    "3_smem": "Shared Mem",
+    "4_1d_blocktile": "1D BlockTile",
+    "5_2d_blocktile": "2D BlockTile",
+    "6_vectorized": "Vectorized",
+    "7_warptile": "WarpTile",
+    "cuBLAS": "cuBLAS",
 }
 # Exclude uncoalesced from most plots (it's a negative example)
 KERNELS_MAIN = [k for k in KERNEL_ORDER if k != "2_uncoalesced"]
@@ -70,7 +84,15 @@ def plot_kernel_gflops(data):
 
     for i, k in enumerate(kernels):
         vals = [perf[k][s] for s in sizes]
-        ax.bar(x + i * w, vals, w, label=KERNEL_LABELS[k], color=colors[i], edgecolor="white", linewidth=0.3)
+        ax.bar(
+            x + i * w,
+            vals,
+            w,
+            label=KERNEL_LABELS[k],
+            color=colors[i],
+            edgecolor="white",
+            linewidth=0.3,
+        )
 
     ax.set_xlabel("Matrix Size ($M = N = K$)")
     ax.set_ylabel("GFLOPS")
@@ -80,7 +102,7 @@ def plot_kernel_gflops(data):
     ax.legend(ncol=2, loc="upper left")
     fig.savefig(FIGS / "kernel_gflops.pdf")
     plt.close(fig)
-    print(f"  kernel_gflops.pdf")
+    print("  kernel_gflops.pdf")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -96,8 +118,15 @@ def plot_cublas_pct(data):
     for i, k in enumerate(kernels):
         vals = np.array([perf[k][s] for s in sizes])
         pct = vals / cublas * 100
-        ax.plot([int(s) for s in sizes], pct, "o-", label=KERNEL_LABELS[k],
-                linewidth=1.8, markersize=4, color=COLORS[i])
+        ax.plot(
+            [int(s) for s in sizes],
+            pct,
+            "o-",
+            label=KERNEL_LABELS[k],
+            linewidth=1.8,
+            markersize=4,
+            color=COLORS[i],
+        )
 
     ax.axhline(100, color="red", ls="--", alpha=0.4, lw=1, label="cuBLAS (100%)")
     ax.set_xlabel("Matrix Size ($M = N = K$)")
@@ -107,7 +136,7 @@ def plot_cublas_pct(data):
     ax.set_ylim(0, 110)
     fig.savefig(FIGS / "cublas_percentage.pdf")
     plt.close(fig)
-    print(f"  cublas_percentage.pdf")
+    print("  cublas_percentage.pdf")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -116,7 +145,7 @@ def plot_cublas_pct(data):
 def plot_roofline(data):
     # H100 specs
     peak_gflops = 33500  # 33.5 TFLOPS FP32
-    peak_bw = 3350       # 3.35 TB/s HBM3 → GB/s
+    peak_bw = 3350  # 3.35 TB/s HBM3 → GB/s
 
     perf = data["single_gpu"]["performance"]
     size = "4096"
@@ -130,8 +159,13 @@ def plot_roofline(data):
 
     ridge = peak_gflops / peak_bw
     ax.axvline(ridge, color="gray", ls=":", alpha=0.4)
-    ax.text(ridge * 1.15, peak_gflops * 0.55, f"Ridge point\n({ridge:.1f} FLOP/B)",
-            fontsize=7, color="gray")
+    ax.text(
+        ridge * 1.15,
+        peak_gflops * 0.55,
+        f"Ridge point\n({ridge:.1f} FLOP/B)",
+        fontsize=7,
+        color="gray",
+    )
 
     # Plot kernels — estimate operational intensity from achieved throughput
     # For GEMM(N,N,N): 2N^3 FLOPs, data moved = (2N^2 read + N^2 write)*4 bytes = 12N^2
@@ -145,8 +179,15 @@ def plot_roofline(data):
     for i, k in enumerate(kernels):
         gf = perf[k][size]
         eff_oi = gf / peak_bw  # effective operational intensity
-        ax.plot(eff_oi, gf, markers[i % len(markers)], color=colors[i],
-                markersize=8, label=KERNEL_LABELS[k], zorder=5)
+        ax.plot(
+            eff_oi,
+            gf,
+            markers[i % len(markers)],
+            color=colors[i],
+            markersize=8,
+            label=KERNEL_LABELS[k],
+            zorder=5,
+        )
 
     ax.set_xlabel("Operational Intensity (FLOP/Byte)")
     ax.set_ylabel("Performance (GFLOPS)")
@@ -156,7 +197,7 @@ def plot_roofline(data):
     ax.legend(fontsize=7, ncol=2, loc="lower right")
     fig.savefig(FIGS / "roofline.pdf")
     plt.close(fig)
-    print(f"  roofline.pdf")
+    print("  roofline.pdf")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -183,7 +224,7 @@ def plot_strong_scaling(data):
     ax.set_xticks([1, 2, 4, 8])
     fig.savefig(FIGS / "strong_scaling.pdf")
     plt.close(fig)
-    print(f"  strong_scaling.pdf")
+    print("  strong_scaling.pdf")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -210,7 +251,7 @@ def plot_strong_efficiency(data):
     ax.set_ylim(0, 120)
     fig.savefig(FIGS / "strong_scaling_efficiency.pdf")
     plt.close(fig)
-    print(f"  strong_scaling_efficiency.pdf")
+    print("  strong_scaling_efficiency.pdf")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -234,7 +275,15 @@ def plot_weak_scaling(data):
     # GFLOPS
     ax2.plot(gpus, [r["GFLOPS"] for r in rows], "s-", lw=2, markersize=5, color=COLORS[1])
     ideal_gf = rows[0]["GFLOPS"]
-    ax2.plot(gpus, [ideal_gf * g for g in gpus], ":", color="red", alpha=0.4, lw=1, label="Ideal linear")
+    ax2.plot(
+        gpus,
+        [ideal_gf * g for g in gpus],
+        ":",
+        color="red",
+        alpha=0.4,
+        lw=1,
+        label="Ideal linear",
+    )
     ax2.set_xlabel("Number of GPUs")
     ax2.set_ylabel("Aggregate GFLOPS")
     ax2.set_title("Weak Scaling — Throughput")
@@ -244,7 +293,7 @@ def plot_weak_scaling(data):
     fig.tight_layout()
     fig.savefig(FIGS / "weak_scaling.pdf")
     plt.close(fig)
-    print(f"  weak_scaling.pdf")
+    print("  weak_scaling.pdf")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -263,7 +312,14 @@ def plot_comm_compute_size(data):
     ax.bar(x - w / 2, gemm, w, label="GEMM", color=COLORS[0])
     ax.bar(x + w / 2, comm, w, label="Communication", color=COLORS[1])
     for i, r in enumerate(rows):
-        ax.text(i + w / 2, r["Comm"] + 0.05, f"{r['Ratio']:.2f}", ha="center", fontsize=7.5, color="gray")
+        ax.text(
+            i + w / 2,
+            r["Comm"] + 0.05,
+            f"{r['Ratio']:.2f}",
+            ha="center",
+            fontsize=7.5,
+            color="gray",
+        )
 
     ax.set_xlabel("Matrix Size")
     ax.set_ylabel("Time (ms)")
@@ -273,7 +329,7 @@ def plot_comm_compute_size(data):
     ax.legend()
     fig.savefig(FIGS / "comm_compute_ratio_size.pdf")
     plt.close(fig)
-    print(f"  comm_compute_ratio_size.pdf")
+    print("  comm_compute_ratio_size.pdf")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -315,7 +371,7 @@ def plot_comm_compute_kernel(data):
     fig.tight_layout()
     fig.savefig(FIGS / "comm_compute_ratio_kernel.pdf")
     plt.close(fig)
-    print(f"  comm_compute_ratio_kernel.pdf")
+    print("  comm_compute_ratio_kernel.pdf")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -333,7 +389,15 @@ def plot_mlp(data):
     ax.bar(x, fwd, 0.5, label="Forward", color=COLORS[0])
     ax.bar(x, bwd, 0.5, bottom=fwd, label="Backward", color=COLORS[3])
     for i, r in enumerate(rows):
-        ax.text(i, r["Fwd"] + r["Bwd"] + 0.2, f"{r['Bwd']/r['Fwd']:.1f}×", ha="center", fontsize=8, color="gray")
+        ratio = r["Bwd"] / r["Fwd"]
+        ax.text(
+            i,
+            r["Fwd"] + r["Bwd"] + 0.2,
+            f"{ratio:.1f}×",
+            ha="center",
+            fontsize=8,
+            color="gray",
+        )
 
     ax.set_xlabel("Matrix Size ($M = H = N$)")
     ax.set_ylabel("Time (ms)")
@@ -343,7 +407,7 @@ def plot_mlp(data):
     ax.legend()
     fig.savefig(FIGS / "mlp_fwd_bwd.pdf")
     plt.close(fig)
-    print(f"  mlp_fwd_bwd.pdf")
+    print("  mlp_fwd_bwd.pdf")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -362,8 +426,14 @@ def plot_overlap(data):
     ax.bar(x - w / 2, no_ovlp, w, label="No Overlap", color=COLORS[0])
     ax.bar(x + w / 2, ovlp, w, label="Overlap (4 chunks)", color=COLORS[2])
     for i, r in enumerate(rows):
-        ax.text(i + w / 2, r["Overlap"] + 0.05, f"{r['Speedup']:.2f}×",
-                ha="center", fontsize=8, color="gray")
+        ax.text(
+            i + w / 2,
+            r["Overlap"] + 0.05,
+            f"{r['Speedup']:.2f}×",
+            ha="center",
+            fontsize=8,
+            color="gray",
+        )
 
     ax.set_xlabel("Matrix Size")
     ax.set_ylabel("Time (ms)")
@@ -373,7 +443,7 @@ def plot_overlap(data):
     ax.legend()
     fig.savefig(FIGS / "overlap_comparison.pdf")
     plt.close(fig)
-    print(f"  overlap_comparison.pdf")
+    print("  overlap_comparison.pdf")
 
 
 # ══════════════════════════════════════════════════════════════════════════
