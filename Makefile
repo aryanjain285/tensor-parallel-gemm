@@ -14,7 +14,7 @@
 # ===========================================================================
 
 CUDA_HOME  ?= /usr/local/cuda
-NCCL_HOME  ?= /usr/local
+NCCL_HOME  ?= /usr
 GPU_ARCH   ?= sm_80
 
 NVCC       := $(CUDA_HOME)/bin/nvcc
@@ -23,7 +23,7 @@ NVCCFLAGS  := -std=c++17 -O3 -arch=$(GPU_ARCH) \
               -Xcompiler -Wall
 
 # Include paths
-INCLUDES   := -I$(CUDA_HOME)/include -I$(NCCL_HOME)/include -Isrc
+INCLUDES   := -Isrc -I$(CUDA_HOME)/include -I$(NCCL_HOME)/include
 
 # Libraries
 LDFLAGS    := -L$(CUDA_HOME)/lib64 -L$(NCCL_HOME)/lib
@@ -63,7 +63,7 @@ bench_multi: $(BUILD_DIR)
 	$(NVCC) $(NVCCFLAGS) $(INCLUDES) \
 		src/benchmark/bench_multi_gpu.cu \
 		src/tensor_parallel/tensor_parallel.cu \
-		src/kernels/cublas_ref.cu \
+		$(KERNEL_SRCS) \
 		$(LDFLAGS) $(LIBS_MULTI) \
 		-o $(BUILD_DIR)/bench_multi_gpu
 
