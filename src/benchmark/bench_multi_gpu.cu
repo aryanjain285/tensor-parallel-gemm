@@ -22,8 +22,8 @@
 #include <thread>
 #include <vector>
 
-#include "../utils/cuda_utils.cuh"
 #include "../kernels/gemm_dispatch.cuh"
+#include "../utils/cuda_utils.cuh"
 
 #define NCCL_CHECK(cmd)                                                                            \
     do {                                                                                           \

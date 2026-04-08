@@ -33,7 +33,6 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "../utils/cuda_utils.cuh"
 #include "../kernels/gemm_dispatch.cuh"
 #include "../kernels/kernels.cuh"
 #include "../utils/cuda_utils.cuh"
