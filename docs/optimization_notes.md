@@ -1,86 +1,85 @@
-# Optimization Analysis Notes
+# Optimization Notes — Detailed Per-Kernel Analysis
 
-## A100 Hardware Parameters
+## GPU Memory Hierarchy (NVIDIA A100)
 
-| Parameter | Value |
-|-----------|-------|
-| SMs | 108 |
-| FP32 cores/SM | 64 |
-| Clock | 1.41 GHz |
-| Peak FP32 | 19.5 TFLOPS |
-| HBM2e bandwidth | 2.0 TB/s |
-| L2 cache | 40 MB |
-| Shared memory/SM | 164 KB (configurable) |
-| Registers/SM | 65536 (32-bit) |
-| Warp size | 32 |
-| Max threads/SM | 2048 |
-| Max threads/block | 1024 |
+| Level | Size | Bandwidth | Latency | Scope |
+|-------|------|-----------|---------|-------|
+| Registers | 256 KB/SM | ~20 TB/s | 0 cycles | Per-thread |
+| Shared Memory | 164 KB/SM | ~19 TB/s | ~20 ns | Per-block |
+| L1 Cache | 192 KB/SM | ~12 TB/s | ~30 ns | Per-SM |
+| L2 Cache | 40 MB | ~5 TB/s | ~200 ns | Global |
+| HBM2e (Global) | 80 GB | ~2 TB/s | ~400 ns | Global |
 
-## Roofline Analysis
+Every optimization moves data access from a slower to a faster level, or reduces total accesses.
 
-The ridge point (where memory-bound meets compute-bound) is:
+## A100 Compute Specs
+- 108 SMs, 64 FP32 cores/SM → 19.5 TFLOPS FP32
+- Warp size: 32, Max threads/SM: 2048, Max threads/block: 1024
+- Shared memory: up to 164 KB/SM (configurable)
 
-```
-Ridge OI = Peak FLOPS / Peak BW = 19500 GFLOPS / 2000 GB/s = 9.75 FLOP/byte
-```
+---
 
-For GEMM with M=N=K=4096:
-- Total FLOPs: 2 × 4096³ = 137.4 GFLOP
-- Total data moved (naive): (M×K + K×N + M×N) × 4B = 192 MB
-- Operational intensity (naive): 137.4G / 192M ≈ 716 FLOP/byte → compute-bound
+## Kernel 1 → 2: Memory Coalescing
 
-This means for large matrices, GEMM should be compute-bound, and kernel optimization
-should focus on maximizing FLOP throughput (occupancy, ILP, avoiding stalls).
+**Problem**: Threads in a warp accessing non-consecutive addresses → separate 32B transactions each. 32 threads × 32B = 1024B for 128B useful data (12.5% utilization).
 
-For small matrices (e.g., 256×256), the OI is lower due to:
-- Insufficient parallelism to saturate all SMs
-- Higher relative overhead of kernel launch and synchronization
-- Cache effects (data may fit in L2)
+**Fix**: Map threadIdx.x to columns (contiguous in row-major). One 128B transaction serves 32 threads (100% utilization).
 
-## Shared Memory Bank Conflicts
+**Metric**: `l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum` — lower is better.
 
-Shared memory has 32 banks, each 4 bytes wide. If multiple threads in a warp
-access the same bank (but different addresses), the accesses are serialized.
+---
 
-In kernel 3 (smem tiling), `Bs[k][threadIdx.x]` accesses column-wise — each
-thread hits a different bank → no conflict. `As[threadIdx.y][k]` has all threads
-in a warp-row reading the same address → broadcast (free, not a conflict).
+## Kernel 2 → 3: Shared Memory Tiling
 
-In kernel 6, we transpose A in shared memory: `As[k][m]`. When the compute
-phase reads `As[k][thread_row * TM + m]`, different values of m within one
-thread access consecutive banks → no conflicts. Across threads in a warp
-reading different `thread_col` positions from Bs, there are also no conflicts.
+**Problem**: 2K global reads per output element.
 
-## Register Pressure Analysis
+**Fix**: 32×32 tile in smem. Each element loaded once, read 32 times. Global traffic reduced 32×.
 
-Kernel 5 (2D block tiling, TM=TN=8):
-- 64 accumulator registers (float)
-- 8 a_cache + 8 b_cache = 16 temporary registers
-- ~10-15 address computation registers
-- Total: ~90-95 registers per thread
+**Arithmetic intensity**: Before: 0.25 FLOP/byte → After: 8 FLOP/byte (A100 ridge: ~9.75).
 
-A100 has 65536 registers per SM, 256 threads per block:
-- 65536 / 256 = 256 registers available per thread → plenty of headroom
-- Occupancy limited by shared memory, not registers
+---
 
-Shared memory per block: BM×BK + BK×BN = 128×8 + 8×128 = 2048 floats = 8 KB
-A100 has 164 KB/SM → up to 20 blocks per SM (but limited by threads: 2048/256=8)
+## Kernel 3 → 4: 1D Block Tiling
 
-## Communication Analysis (Tensor Parallelism)
+**Problem**: 2 smem reads per FMA → smem bandwidth becomes bottleneck.
 
-For row-parallel AllReduce with p GPUs, M×N floats:
-- Data volume per GPU: M×N×4 bytes
-- AllReduce with ring algorithm: 2×(p-1)/p × M×N×4 bytes total bandwidth used
-- On NVLink (A100 SXM4): 600 GB/s bidirectional per GPU pair
-- For M=N=4096, p=4: 4096² × 4 = 64 MB
-  - Ring AllReduce time ≈ 2 × 3/4 × 64 MB / 600 GB/s ≈ 0.16 ms
-  - GEMM time (per GPU, N/p=1024): ~0.5 ms at ~18 TFLOPS
-  - Comm/compute ratio ≈ 0.32 → communication is NOT dominant
+**Fix**: Thread computes TM=8 rows. B smem value reused across 8 A values. Smem reads/FMA: 2 → ~1.125.
 
-For smaller matrices, the ratio increases because:
-- GEMM time drops cubically with size
-- Communication has fixed latency overhead (~5-10 μs)
-- AllReduce data volume drops quadratically
+---
 
-The "crossover point" where communication dominates shifts to smaller matrices
-as kernel efficiency improves — this is a key finding of the project.
+## Kernel 4 → 5: 2D Block Tiling
+
+**Problem**: Only B reused across rows, A still loaded once per use.
+
+**Fix**: TM×TN=8×8 outer product. Smem reads/FMA: (8+8)/64 = 0.25 (8× better than kernel 3).
+
+**Registers**: 64 accumulators + 16 cache = 80 regs/thread. A100 has 65536/SM, 256 threads → 256 available. Comfortable.
+
+---
+
+## Kernel 5 → 6: Vectorized + Transposed Smem
+
+**float4**: 4× fewer memory instructions via LDG.128.
+
+**Transpose A in smem**: Without: `As[row][k]` — warp threads access same k column → same bank → 32-way conflict. With: `As[k][row]` — different rows → different banks → no conflict.
+
+---
+
+## Kernel 6 → 7: Warp Tiling
+
+Organize warps into 2D sub-tiles. Each warp's smem working set is WM×BK + BK×WN instead of full block tile. Better L1 locality and instruction scheduling.
+
+---
+
+## Communication Analysis
+
+### AllReduce Cost (Ring)
+Time ≈ 2(p-1)/p × S/B + 2(p-1) × L  
+A100 NVLink: ~600 GB/s bidirectional, ~1-5 μs latency/hop.
+
+### Crossover Point (A100 NVLink, 2 GPUs)
+- 2048²: GEMM ~0.9ms, AllReduce ~0.03ms → compute dominates
+- 512²: GEMM ~0.01ms, AllReduce ~0.01ms → balanced
+- 128²: AllReduce dominates
+
+This is why tensor parallelism works for large models but has diminishing returns for small ops.
