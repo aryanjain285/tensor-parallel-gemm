@@ -1,0 +1,10 @@
+build/
+results/*.txt
+results/*.png
+results/*.log
+results/*.ncu-rep
+results/*.nsys-rep
+results/*.sqlite
+*.o
+*.d
+__pycache__/
