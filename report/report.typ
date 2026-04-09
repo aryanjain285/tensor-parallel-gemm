@@ -424,15 +424,15 @@ All GEMM kernels---from the naive baseline to cuBLAS---implement a common abstra
   kind: image,
   scope: "parent",
   placement: auto,
-  block(width: 85%, inset: 10pt)[
-    #set text(size: 8.5pt)
+  block(width: 75%, inset: 6pt)[
+    #set text(size: 8pt)
 
     #align(center)[
-      #block(width: 55%, inset: 8pt, radius: 4pt, stroke: rgb("#3b82f6") + 1.5pt, fill: rgb("#3b82f6").lighten(92%))[
+      #block(width: 50%, inset: 6pt, radius: 3pt, stroke: rgb("#3b82f6") + 1.5pt, fill: rgb("#3b82f6").lighten(92%))[
         #align(center)[
-          #text(weight: "bold", size: 10pt)[`GemmKernel`] #text(fill: gray)[ (abstract)] \
+          #text(weight: "bold", size: 9pt)[`GemmKernel`] #text(fill: gray)[ (abstract)] \
           #line(length: 100%, stroke: 0.5pt + gray)
-          #v(2pt)
+          #v(1pt)
           `+ name() -> const char*` \
           `+ launch(A, B, C, M, N, K, stream)` \
           `+ needs_cublas() -> bool` \
@@ -440,30 +440,28 @@ All GEMM kernels---from the naive baseline to cuBLAS---implement a common abstra
         ]
       ]
     ]
-
-    #v(4pt)
+    #v(2pt)
     #align(center)[
       #grid(columns: (1fr,) * 4, gutter: 4pt,
-        ..range(4).map(_ => align(center)[#text(14pt)[#sym.triangle.b]]))
+        ..range(4).map(_ => align(center)[#text(11pt)[#sym.triangle.b]]))
     ]
-    #v(2pt)
-
-    #grid(columns: (1fr, 1fr, 1fr, 1fr), gutter: 6pt,
-      block(inset: 5pt, radius: 3pt, stroke: rgb("#3b82f6") + 0.8pt, fill: white)[
+    #v(1pt)
+    #grid(columns: (1fr, 1fr, 1fr, 1fr), gutter: 5pt,
+      block(inset: 4pt, radius: 3pt, stroke: rgb("#3b82f6") + 0.8pt, fill: white)[
         #text(weight: "bold")[`NaiveKernel`] \ Block: 32$times$32 \ 1 elem/thread
       ],
-      block(inset: 5pt, radius: 3pt, stroke: rgb("#3b82f6") + 0.8pt, fill: white)[
+      block(inset: 4pt, radius: 3pt, stroke: rgb("#3b82f6") + 0.8pt, fill: white)[
         #text(weight: "bold")[`SmemTiling`] \ Tile: 32$times$32 \ Shared memory
       ],
-      block(inset: 5pt, radius: 3pt, stroke: rgb("#3b82f6") + 0.8pt, fill: white)[
+      block(inset: 4pt, radius: 3pt, stroke: rgb("#3b82f6") + 0.8pt, fill: white)[
         #text(weight: "bold")[`WarpTile`] \ BM$=$BN$=$128 \ Warp-level tiling
       ],
-      block(inset: 5pt, radius: 3pt, stroke: rgb("#3b82f6") + 0.8pt, fill: white)[
+      block(inset: 4pt, radius: 3pt, stroke: rgb("#3b82f6") + 0.8pt, fill: white)[
         #text(weight: "bold")[`CublasKernel`] \ cuBLAS `sgemm` \ Tensor Core path
       ],
     )
-    #v(2pt)
-    #align(center)[#text(size: 7.5pt, fill: gray)[+ CoalescedKernel, BlockTile1DKernel, BlockTile2DKernel, VectorizedKernel]]
+    #v(1pt)
+    #align(center)[#text(size: 7pt, fill: gray)[+ CoalescedKernel, BlockTile1DKernel, BlockTile2DKernel, VectorizedKernel]]
   ],
   caption: [Kernel class hierarchy. Each concrete kernel encapsulates its CUDA `__global__` function, block/grid configuration, and launch logic. The abstract base provides a uniform `launch()` interface.],
 ) <fig:class>
@@ -509,46 +507,46 @@ All GPU resources are managed via move-only RAII wrappers, ensuring deterministi
   kind: image,
   scope: "parent",
   placement: auto,
-  block(width: 95%, inset: 10pt)[
-    #set text(size: 8.5pt)
+  block(width: 80%, inset: 6pt)[
+    #set text(size: 8pt)
     #align(center)[
-      #block(width: 85%, inset: 8pt, radius: 4pt, stroke: gray + 1pt, fill: gray.lighten(92%))[
+      #block(width: 80%, inset: 6pt, radius: 3pt, stroke: gray + 1pt, fill: gray.lighten(92%))[
         #align(center)[#text(weight: "bold", fill: gray)[Application Layer]]
-        #v(4pt)
-        #grid(columns: (1fr, 1fr), gutter: 8pt,
-          block(inset: 6pt, radius: 3pt, stroke: gray + 0.5pt, fill: white)[`bench_single_gpu` \ Correctness + GFLOPS],
-          block(inset: 6pt, radius: 3pt, stroke: gray + 0.5pt, fill: white)[`bench_multi_gpu` \ 6 scaling experiments],
+        #v(2pt)
+        #grid(columns: (1fr, 1fr), gutter: 6pt,
+          block(inset: 4pt, radius: 3pt, stroke: gray + 0.5pt, fill: white)[`bench_single_gpu` \ Correctness + GFLOPS],
+          block(inset: 4pt, radius: 3pt, stroke: gray + 0.5pt, fill: white)[`bench_multi_gpu` \ 6 scaling experiments],
         )
       ]
     ]
-    #v(4pt)
-    #align(center)[#text(14pt)[#sym.arrow.b]]
     #v(2pt)
+    #align(center)[#text(11pt)[#sym.arrow.b]]
+    #v(1pt)
     #align(center)[
-      #block(width: 85%, inset: 8pt, radius: 4pt, stroke: rgb("#a855f7") + 1pt, fill: rgb("#a855f7").lighten(92%))[
+      #block(width: 80%, inset: 6pt, radius: 3pt, stroke: rgb("#a855f7") + 1pt, fill: rgb("#a855f7").lighten(92%))[
         #align(center)[#text(weight: "bold", fill: rgb("#a855f7"))[Tensor Parallelism Layer]]
-        #v(4pt)
-        #grid(columns: (1fr, 1fr, 1fr), gutter: 6pt,
-          block(inset: 5pt, radius: 3pt, stroke: rgb("#a855f7") + 0.5pt, fill: white)[*Column Parallel* \ Fwd + Bwd \ `AllGather`/`AllReduce`],
-          block(inset: 5pt, radius: 3pt, stroke: rgb("#a855f7") + 0.5pt, fill: white)[*Row Parallel* \ Fwd + Bwd \ `AllReduce`],
-          block(inset: 5pt, radius: 3pt, stroke: rgb("#a855f7") + 0.5pt, fill: white)[*MLP Block* \ Col$arrow.r$Row compose \ Overlap pipelining],
+        #v(2pt)
+        #grid(columns: (1fr, 1fr, 1fr), gutter: 5pt,
+          block(inset: 4pt, radius: 3pt, stroke: rgb("#a855f7") + 0.5pt, fill: white)[*Column Parallel* \ Fwd + Bwd \ `AllGather`/`AllReduce`],
+          block(inset: 4pt, radius: 3pt, stroke: rgb("#a855f7") + 0.5pt, fill: white)[*Row Parallel* \ Fwd + Bwd \ `AllReduce`],
+          block(inset: 4pt, radius: 3pt, stroke: rgb("#a855f7") + 0.5pt, fill: white)[*MLP Block* \ Col$arrow.r$Row compose \ Overlap pipelining],
         )
       ]
     ]
-    #v(4pt)
-    #align(center)[#text(14pt)[#sym.arrow.b]]
     #v(2pt)
-    #grid(columns: (1fr, 1fr), gutter: 10pt,
-      block(inset: 8pt, radius: 4pt, stroke: rgb("#3b82f6") + 1pt, fill: rgb("#3b82f6").lighten(92%))[
+    #align(center)[#text(11pt)[#sym.arrow.b]]
+    #v(1pt)
+    #grid(columns: (1fr, 1fr), gutter: 8pt,
+      block(inset: 6pt, radius: 3pt, stroke: rgb("#3b82f6") + 1pt, fill: rgb("#3b82f6").lighten(92%))[
         #align(center)[#text(weight: "bold", fill: rgb("#3b82f6"))[Kernel Layer]]
-        #v(3pt)
+        #v(2pt)
         `GemmKernel` (abstract base) \
         `KernelRegistry` (singleton) \
         9 self-registering kernel classes
       ],
-      block(inset: 8pt, radius: 4pt, stroke: rgb("#22c55e") + 1pt, fill: rgb("#22c55e").lighten(92%))[
+      block(inset: 6pt, radius: 3pt, stroke: rgb("#22c55e") + 1pt, fill: rgb("#22c55e").lighten(92%))[
         #align(center)[#text(weight: "bold", fill: rgb("#22c55e"))[CUDA Resource Layer]]
-        #v(3pt)
+        #v(2pt)
         `CudaMemory<T>`, `DeviceMatrix` \
         `CudaStream`, `CudaEvent` \
         `CublasHandle`, `GpuTimer`
