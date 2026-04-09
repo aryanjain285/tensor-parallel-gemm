@@ -22,14 +22,18 @@ DESCRIPTIONS = {
     "gemm_kernel.cuh": "GemmKernel abstract base class for all GEMM implementations.",
     "kernel_registry.cuh": "KernelRegistry singleton -- self-registering kernel management.",
     # Tensor parallel
-    "tensor_parallel.cu": "Tensor parallel linear layers (column/row parallel, MLP block, overlap).",
+    "tensor_parallel.cu": (
+        "Tensor parallel linear layers (column/row parallel, MLP block, overlap)."
+    ),
     "tensor_parallel.cuh": "Tensor parallel layer declarations.",
     # Benchmarks
     "bench_single_gpu.cu": "Single-GPU GEMM benchmark -- correctness verification and GFLOPS.",
     "bench_multi_gpu.cu": "Multi-GPU tensor parallelism benchmark -- 6 scaling experiments.",
     # Utils
     "cuda_utils.cuh": "CUDA utility macros, error checking, timing, and verification helpers.",
-    "cuda_raii.cuh": "Move-only RAII wrappers for CUDA resources (memory, streams, events, handles).",
+    "cuda_raii.cuh": (
+        "Move-only RAII wrappers for CUDA resources (memory, streams, events, handles)."
+    ),
     "device_matrix.cuh": "DeviceMatrix -- RAII 2D float matrix with initialization helpers.",
     "nccl_utils.cuh": "NCCL error checking macro.",
 }
