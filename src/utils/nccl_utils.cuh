@@ -1,9 +1,7 @@
-/*
- * NCCL Utilities
- * ==============
- * Error checking macro for NCCL calls.
- * Single source of truth — included by tensor_parallel.cu and bench_multi_gpu.cu.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// nccl_utils.cuh - NCCL error checking macro.
 
 #pragma once
 

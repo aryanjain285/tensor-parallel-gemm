@@ -1,10 +1,7 @@
-/*
- * Naive GEMM Kernel
- * =================
- * Each thread computes exactly one element of C.
- * No data reuse — entirely memory-bound.
- * Expected: ~1-2% of cuBLAS for large matrices.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// naive.cu - Naive GEMM kernel -- one thread per output element, no data reuse.
 
 #include <cuda_runtime.h>
 

@@ -1,10 +1,7 @@
-/*
- * 1D Block Tiling GEMM Kernel (Thread Coarsening along M)
- * ========================================================
- * Each thread computes TM=8 rows. A single B shared memory load
- * is reused across TM accumulations.
- * Block: (64, 8) = 512 threads.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// blocktile_1d.cu - 1D block tiling GEMM kernel -- thread coarsening along M (TM=8).
 
 #include <cuda_runtime.h>
 

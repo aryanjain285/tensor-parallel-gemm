@@ -1,3 +1,8 @@
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// cuda_utils.cuh - CUDA utility macros, error checking, timing, and verification helpers.
+
 #pragma once
 
 #include <cublas_v2.h>

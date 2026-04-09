@@ -1,9 +1,7 @@
-/*
- * 2D Block Tiling GEMM Kernel (Register Blocking)
- * ================================================
- * Each thread computes a TM×TN=8×8 sub-tile in registers.
- * BM=128, BN=128, BK=8, 256 threads per block.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// blocktile_2d.cu - 2D block tiling GEMM kernel -- register blocking (TM=TN=8).
 
 #include <cuda_runtime.h>
 

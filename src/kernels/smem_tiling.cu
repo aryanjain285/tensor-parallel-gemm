@@ -1,9 +1,7 @@
-/*
- * Shared Memory Tiling GEMM Kernel
- * =================================
- * Loads TILE×TILE blocks into shared memory, reusing each element TILE times.
- * Reduces global memory traffic by ~32× (TILE=32).
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// smem_tiling.cu - Shared memory tiling GEMM kernel -- 32x32 tiles, 32x traffic reduction.
 
 #include <cuda_runtime.h>
 

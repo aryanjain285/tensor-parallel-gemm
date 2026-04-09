@@ -1,10 +1,7 @@
-/*
- * DeviceMatrix
- * ============
- * Owns a device-side float matrix with dimensions, providing RAII memory
- * management and convenient initialization. Eliminates the pattern of
- * separate cudaMalloc + init_matrix + cudaMemcpy scattered across benchmarks.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// device_matrix.cuh - DeviceMatrix -- RAII 2D float matrix with initialization helpers.
 
 #pragma once
 

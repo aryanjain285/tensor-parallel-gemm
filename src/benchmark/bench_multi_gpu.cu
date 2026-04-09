@@ -1,13 +1,7 @@
-/*
- * Multi-GPU Tensor Parallelism Benchmark
- * ======================================
- * Runs true multi-rank NCCL experiments from a single process by launching
- * one host thread per active GPU. This keeps the benchmark self-contained
- * while ensuring every rank participates in collectives.
- *
- * Usage: ./bench_multi_gpu [max_num_gpus] [kernel_id]
- *   kernel_id: index into KernelRegistry (default: last registered, typically cuBLAS)
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// bench_multi_gpu.cu - Multi-GPU tensor parallelism benchmark -- 6 scaling experiments.
 
 #include <cuda_runtime.h>
 #include <nccl.h>

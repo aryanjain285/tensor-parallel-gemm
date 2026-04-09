@@ -1,11 +1,7 @@
-/*
- * CUDA RAII Wrappers
- * ==================
- * Move-only RAII classes for CUDA resources, eliminating manual
- * cudaMalloc/cudaFree, cudaStreamCreate/Destroy, etc.
- *
- * All classes follow the rule of five with deleted copy operations.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// cuda_raii.cuh - Move-only RAII wrappers for CUDA resources (memory, streams, events, handles).
 
 #pragma once
 

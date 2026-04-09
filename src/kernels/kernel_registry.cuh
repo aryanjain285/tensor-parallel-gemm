@@ -1,9 +1,7 @@
-/*
- * KernelRegistry — Singleton Kernel Manager
- * ==========================================
- * Each kernel .cu file self-registers via a static initializer.
- * Consumers iterate or look up kernels by index or name.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// kernel_registry.cuh - KernelRegistry singleton -- self-registering kernel management.
 
 #pragma once
 

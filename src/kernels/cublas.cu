@@ -1,9 +1,7 @@
-/*
- * cuBLAS GEMM Kernel
- * ==================
- * Wraps cublasSgemm with the row-major → column-major trick:
- *   C = A×B  ↔  C^T = B^T × A^T
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// cublas.cu - cuBLAS GEMM kernel wrapper via cublasSgemm.
 
 #include <cublas_v2.h>
 

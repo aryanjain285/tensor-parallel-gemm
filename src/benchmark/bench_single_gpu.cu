@@ -1,11 +1,7 @@
-/*
- * Single-GPU GEMM Benchmark
- * ==========================
- * Tests each kernel for correctness against CPU reference (small size)
- * and benchmarks GFLOPS across multiple matrix sizes.
- *
- * Usage: ./bench_single_gpu [--verify-only] [--size M,N,K]
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// bench_single_gpu.cu - Single-GPU GEMM benchmark -- correctness verification and GFLOPS.
 
 #include <cstdio>
 #include <cstring>

@@ -1,9 +1,7 @@
-/*
- * Coalesced GEMM Kernel
- * =====================
- * Demonstrates memory coalescing: threadIdx.x → column for stride-1 access.
- * Also provides an uncoalesced variant for comparison.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// coalesced.cu - Coalesced and uncoalesced GEMM kernels for memory access comparison.
 
 #include <cuda_runtime.h>
 

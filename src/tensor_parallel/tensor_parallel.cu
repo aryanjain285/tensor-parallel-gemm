@@ -1,23 +1,7 @@
-/*
- * Tensor Parallel Linear Layer with NCCL
- * ========================================
- * Implements Column Parallel and Row Parallel linear layers following
- * Megatron-LM (Shoeybi et al., 2019) for distributed GEMM across GPUs.
- *
- * Column Parallelism:
- *   Weight W is split column-wise: W = [W_0 | W_1 | ... | W_{p-1}]
- *   Each GPU i computes: Y_i = X @ W_i    (partial output)
- *   To get full output: AllGather(Y_0, Y_1, ..., Y_{p-1})
- *
- * Row Parallelism:
- *   Weight W is split row-wise: W = [W_0; W_1; ...; W_{p-1}]
- *   Input X is split column-wise: X = [X_0 | X_1 | ... | X_{p-1}]
- *   Each GPU i computes: Y_i = X_i @ W_i  (partial sum)
- *   To get full output: AllReduce(Y_0 + Y_1 + ... + Y_{p-1})
- *
- * Together, column -> row parallelism forms a complete MLP block
- * with only ONE AllReduce per forward pass and ONE per backward pass.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// tensor_parallel.cu - Tensor parallel linear layers (column/row parallel, MLP block, overlap).
 
 #include "../utils/cuda_raii.cuh"
 #include "../utils/cuda_utils.cuh"

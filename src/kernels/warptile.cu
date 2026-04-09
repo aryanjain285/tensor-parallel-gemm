@@ -1,14 +1,7 @@
-/*
- * Warp Tiling GEMM Kernel
- * =======================
- * Hierarchical tiling: Block(128×128) → Warp(32×64) → Thread(8×8).
- * Improves shared memory locality within each warp and enables
- * better instruction-level parallelism.
- *
- * Warps per block: (128/32)*(128/64) = 4*2 = 8
- * Threads per warp: (32/8)*(64/8) = 4*8 = 32 ✓
- * Total: 256 threads
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// warptile.cu - Warp tiling GEMM kernel -- Block/Warp/Thread hierarchy (128x128x8).
 
 #include <cuda_runtime.h>
 

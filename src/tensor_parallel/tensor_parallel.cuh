@@ -1,9 +1,7 @@
-/*
- * Tensor Parallel Linear Layer — Header
- * =======================================
- * Declarations for column/row parallel linear layers, MLP blocks,
- * and communication-compute overlap following Megatron-LM.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// tensor_parallel.cuh - Tensor parallel layer declarations.
 
 #pragma once
 

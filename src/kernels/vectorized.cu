@@ -1,9 +1,7 @@
-/*
- * Vectorized GEMM Kernel
- * ======================
- * Uses float4 (128-bit) loads and stores A transposed in shared memory
- * to eliminate bank conflicts. Builds on the 2D block tiling structure.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// vectorized.cu - Vectorized GEMM kernel -- float4 loads with transposed shared memory.
 
 #include <cuda_runtime.h>
 

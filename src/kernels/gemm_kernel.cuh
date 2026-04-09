@@ -1,10 +1,7 @@
-/*
- * GemmKernel — Abstract Base Class
- * =================================
- * Uniform interface for all GEMM kernel implementations.
- * Each concrete kernel encapsulates its __global__ function,
- * block/grid configuration, and launch logic.
- */
+// Copyright 2025 Aryan Jain, Fanyi Pu, Ze Hong Maxwell Au
+// SC4064 GPU Programming, Nanyang Technological University
+//
+// gemm_kernel.cuh - GemmKernel abstract base class for all GEMM implementations.
 
 #pragma once
 
