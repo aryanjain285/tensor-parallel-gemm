@@ -6,28 +6,42 @@
   <title>Scaling Matrix Multiplication</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/white.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/dracula.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/dracula.css">
   <style>
     :root {
-      --r-heading-color: #1a56db;
-      --r-link-color: #1a56db;
+      --dracula-bg: #282a36;
+      --dracula-fg: #f8f8f2;
+      --dracula-purple: #bd93f9;
+      --dracula-pink: #ff79c6;
+      --dracula-cyan: #8be9fd;
+      --dracula-green: #50fa7b;
+      --dracula-orange: #ffb86c;
+      --dracula-yellow: #f1fa8c;
+      --dracula-red: #ff5555;
+      --dracula-comment: #6272a4;
+      --dracula-current: #44475a;
       --r-main-font-size: 28px;
     }
     .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
     .reveal h2 { font-size: 1.4em; }
-    .reveal h3 { font-size: 1.1em; color: #444; }
+    .reveal h3 { font-size: 1.05em; color: var(--dracula-cyan); }
     .reveal ul { text-align: left; }
-    .reveal .subtitle { font-size: 0.6em; color: #666; margin-top: 0.3em; }
-    .reveal .authors { font-size: 0.55em; color: #555; }
-    .reveal .institution { font-size: 0.45em; color: #888; }
+    .reveal strong { color: var(--dracula-pink); }
+    .reveal code { color: var(--dracula-green); }
+    .reveal .subtitle {
+      font-size: 0.6em;
+      color: var(--dracula-cyan);
+      margin-top: 0.3em;
+    }
+    .reveal .authors { font-size: 0.55em; color: var(--dracula-fg); }
+    .reveal .institution { font-size: 0.45em; color: var(--dracula-comment); }
     .reveal .highlight-box {
-      background: #eff6ff;
-      border-left: 4px solid #1a56db;
+      background: var(--dracula-current);
+      border-left: 4px solid var(--dracula-purple);
       padding: 0.5em 1em;
       margin: 0.5em 0;
-      border-radius: 4px;
+      border-radius: 6px;
       text-align: left;
       font-size: 0.85em;
     }
@@ -37,52 +51,92 @@
       align-items: flex-start;
     }
     .reveal .two-col > * { flex: 1; }
-    .reveal .key-number {
-      font-size: 2em;
-      font-weight: bold;
-      color: #1a56db;
+    .reveal .img-text-row {
+      display: flex;
+      gap: 1.2em;
+      align-items: center;
     }
-    .reveal .key-number .unit {
-      font-size: 0.4em;
-      color: #666;
-      font-weight: normal;
-    }
+    .reveal .img-text-row > img { flex: 1.2; max-height: 50vh; }
+    .reveal .img-text-row > div { flex: 1; text-align: left; font-size: 0.75em; }
     .reveal .stat-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 1em;
+      gap: 0.8em;
       margin-top: 0.5em;
     }
     .reveal .stat-card {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      background: var(--dracula-current);
+      border: 1px solid var(--dracula-comment);
+      border-radius: 10px;
       padding: 0.6em;
       text-align: center;
     }
     .reveal .stat-card .value {
       font-size: 1.6em;
       font-weight: bold;
-      color: #1a56db;
+      color: var(--dracula-green);
     }
     .reveal .stat-card .label {
       font-size: 0.6em;
-      color: #666;
+      color: var(--dracula-comment);
     }
-    .reveal table { font-size: 0.7em; margin: 0 auto; }
-    .reveal table th { background: #1a56db; color: white; padding: 0.4em 0.6em; }
-    .reveal table td { padding: 0.3em 0.6em; border-bottom: 1px solid #e2e8f0; }
-    .reveal table tr:nth-child(even) { background: #f8fafc; }
-    .reveal img { max-height: 55vh; }
+    .reveal table { font-size: 0.7em; margin: 0 auto; border-collapse: collapse; }
+    .reveal table th {
+      background: var(--dracula-purple);
+      color: var(--dracula-bg);
+      padding: 0.4em 0.7em;
+      font-weight: bold;
+    }
+    .reveal table td {
+      padding: 0.35em 0.7em;
+      border-bottom: 1px solid var(--dracula-current);
+    }
+    .reveal table tr:nth-child(even) { background: rgba(68,71,90,0.5); }
+    .reveal img {
+      max-height: 55vh;
+      border-radius: 6px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
     .reveal .slide-number { font-size: 12px; }
     .reveal .arch-layer {
-      border-radius: 6px;
-      padding: 0.4em 0.8em;
+      border-radius: 8px;
+      padding: 0.5em 0.8em;
       margin: 0.3em 0;
       text-align: center;
       font-size: 0.7em;
     }
-    .reveal pre code { font-size: 0.75em; }
+    .reveal pre code { font-size: 0.75em; border-radius: 6px; }
+    .reveal .progress { color: var(--dracula-pink); height: 4px; }
+    .reveal .badge {
+      display: inline-block;
+      background: var(--dracula-purple);
+      color: var(--dracula-bg);
+      padding: 0.15em 0.5em;
+      border-radius: 4px;
+      font-size: 0.7em;
+      font-weight: bold;
+      margin: 0 0.2em;
+    }
+    .reveal .badge.green { background: var(--dracula-green); }
+    .reveal .badge.pink { background: var(--dracula-pink); }
+    .reveal .badge.cyan { background: var(--dracula-cyan); color: var(--dracula-bg); }
+    .reveal .badge.orange { background: var(--dracula-orange); color: var(--dracula-bg); }
+    .reveal .flow-diagram {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3em;
+      font-size: 0.75em;
+      margin: 0.8em 0;
+    }
+    .reveal .flow-box {
+      background: var(--dracula-current);
+      border: 2px solid var(--dracula-purple);
+      border-radius: 8px;
+      padding: 0.4em 0.6em;
+      text-align: center;
+    }
+    .reveal .flow-arrow { color: var(--dracula-comment); font-size: 1.3em; }
   </style>
 </head>
 <body>
@@ -95,11 +149,19 @@
 <section>
   <h2>Scaling Matrix Multiplication</h2>
   <p class="subtitle">From CUDA Kernels to Multi-GPU Tensor Parallelism</p>
+  <br>
   <p class="authors">Aryan Jain &nbsp;&bull;&nbsp; Fanyi Pu &nbsp;&bull;&nbsp; Ze Hong Maxwell Au</p>
   <p class="institution">
     School of Computer Science and Engineering, NTU<br>
     SC4064 GPU Programming
   </p>
+  <br>
+  <div style="font-size:0.5em; color:var(--dracula-comment);">
+    <span class="badge">7 Kernels</span>
+    <span class="badge green">8&times;H100</span>
+    <span class="badge pink">400 TFLOPS</span>
+    <span class="badge cyan">NCCL</span>
+  </div>
 </section>
 
 <!-- ============================================================ -->
@@ -114,6 +176,7 @@
         <li>7 progressive CUDA GEMM kernels</li>
         <li>Naive &rarr; warp-level tiling</li>
         <li>Best: <strong>63%</strong> of cuBLAS</li>
+        <li><strong>32.8 TFLOPS</strong> peak</li>
       </ul>
     </div>
     <div>
@@ -121,6 +184,7 @@
       <ul>
         <li>Tensor parallelism via NCCL</li>
         <li>Column &amp; row parallel layers</li>
+        <li>MLP block with overlap</li>
         <li>8&times;H100, up to <strong>400 TFLOPS</strong></li>
       </ul>
     </div>
@@ -135,15 +199,30 @@
 <!-- ============================================================ -->
 <section>
   <h2>GPU Memory Hierarchy (H100)</h2>
-  <table>
-    <thead><tr><th>Level</th><th>Size</th><th>Bandwidth</th><th>Latency</th></tr></thead>
-    <tbody>
-      <tr><td>Registers</td><td>256 KB/SM</td><td>~20 TB/s</td><td>0 cycles</td></tr>
-      <tr><td>Shared Memory</td><td>228 KB/SM</td><td>~19 TB/s</td><td>~20 ns</td></tr>
-      <tr><td>L2 Cache</td><td>50 MB</td><td>~5 TB/s</td><td>~200 ns</td></tr>
-      <tr><td>HBM3</td><td>80 GB</td><td>~3.35 TB/s</td><td>~400 ns</td></tr>
-    </tbody>
-  </table>
+  <div class="two-col">
+    <div>
+      <table>
+        <thead><tr><th>Level</th><th>Size</th><th>BW</th><th>Latency</th></tr></thead>
+        <tbody>
+          <tr><td>Registers</td><td>256 KB/SM</td><td>~20 TB/s</td><td>0 cyc</td></tr>
+          <tr><td>Shared Mem</td><td>228 KB/SM</td><td>~19 TB/s</td><td>~20 ns</td></tr>
+          <tr><td>L2 Cache</td><td>50 MB</td><td>~5 TB/s</td><td>~200 ns</td></tr>
+          <tr><td>HBM3</td><td>80 GB</td><td>~3.35 TB/s</td><td>~400 ns</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:0.7em;">
+      <div class="flow-diagram" style="flex-direction:column; gap:0.4em;">
+        <div class="flow-box" style="border-color:var(--dracula-green); width:60%;">Registers <span class="badge green" style="font-size:0.8em;">fastest</span></div>
+        <div class="flow-arrow">&darr;</div>
+        <div class="flow-box" style="border-color:var(--dracula-cyan); width:70%;">Shared Memory</div>
+        <div class="flow-arrow">&darr;</div>
+        <div class="flow-box" style="border-color:var(--dracula-orange); width:80%;">L2 Cache</div>
+        <div class="flow-arrow">&darr;</div>
+        <div class="flow-box" style="border-color:var(--dracula-red); width:90%;">HBM3 (Global) <span class="badge pink" style="font-size:0.8em;">80 GB</span></div>
+      </div>
+    </div>
+  </div>
   <div class="highlight-box">
     Each kernel optimization moves data access from a slower to a faster level.
   </div>
@@ -154,15 +233,22 @@
 <!-- ============================================================ -->
 <section>
   <h2>Roofline Model</h2>
-  <p style="font-size:0.85em;">
-    \( P_{\max} = \min(\pi,\; \beta \times \text{OI}) \)
-  </p>
-  <ul style="font-size:0.8em;">
-    <li>\(\pi = 33.5\) TFLOPS (FP32 peak), &ensp; \(\beta = 3.35\) TB/s</li>
-    <li>Ridge point: \(\text{OI} = \pi / \beta \approx 10\) FLOP/byte</li>
-    <li>GEMM theoretical OI: \(N/6\) &mdash; compute-bound for \(N \geq 60\)</li>
-    <li>In practice, only optimized kernels achieve this</li>
-  </ul>
+  <div class="img-text-row">
+    <img src="img/roofline.png" alt="Roofline analysis" style="max-height:45vh;">
+    <div>
+      <p>\( P_{\max} = \min(\pi,\; \beta \times \text{OI}) \)</p>
+      <ul>
+        <li>\(\pi = 33.5\) TFLOPS <span class="badge" style="font-size:0.8em;">FP32</span></li>
+        <li>\(\beta = 3.35\) TB/s</li>
+        <li>Ridge point: OI \(\approx 10\) FLOP/byte</li>
+        <li>GEMM OI = \(N/6\)</li>
+      </ul>
+      <p style="font-size:0.85em; color:var(--dracula-orange); margin-top:0.5em;">
+        Left of ridge = <strong>memory-bound</strong><br>
+        Right of ridge = <strong>compute-bound</strong>
+      </p>
+    </div>
+  </div>
 </section>
 
 <!-- ============================================================ -->
@@ -171,37 +257,49 @@
 <section>
   <section>
     <h2>Tensor Parallelism</h2>
-    <p style="font-size:0.85em;">Distribute \(Y = XW\) across \(p\) GPUs (Megatron-LM)</p>
-    <div class="two-col" style="font-size:0.75em;">
-      <div>
-        <h3>Column Parallel</h3>
+    <p style="font-size:0.8em;">Distribute \(Y = XW\) across \(p\) GPUs &mdash; <span class="badge">Megatron-LM</span></p>
+    <div class="two-col" style="font-size:0.75em; margin-top:0.5em;">
+      <div style="background:var(--dracula-current); padding:0.8em; border-radius:8px; border-top:3px solid var(--dracula-cyan);">
+        <h3 style="margin-top:0;">Column Parallel</h3>
         <p>\(W = [W_1 | \cdots | W_p]\)</p>
         <p>Each GPU: \(Y_i = X W_i\)</p>
-        <p>Fwd: <code>AllGather</code><br>Bwd: <code>AllReduce</code></p>
+        <p>Fwd: <span class="badge cyan">AllGather</span><br>Bwd: <span class="badge orange">AllReduce</span></p>
       </div>
-      <div>
-        <h3>Row Parallel</h3>
+      <div style="background:var(--dracula-current); padding:0.8em; border-radius:8px; border-top:3px solid var(--dracula-pink);">
+        <h3 style="margin-top:0; color:var(--dracula-pink);">Row Parallel</h3>
         <p>\(W = \begin{bmatrix}W_1\\\vdots\\W_p\end{bmatrix}\)</p>
         <p>Each GPU: \(Y_i = X_i W_i\)</p>
-        <p>Fwd: <code>AllReduce</code><br>Bwd: no comm</p>
+        <p>Fwd: <span class="badge orange">AllReduce</span><br>Bwd: <span class="badge green">no comm</span></p>
       </div>
     </div>
   </section>
   <section>
     <h2>Parallel MLP Block</h2>
-    <p style="font-size:0.8em;">\(\text{MLP}(X) = \sigma(X W_1) W_2\) &mdash; Column &rarr; Row composition</p>
-    <table style="font-size:0.65em;">
+    <p style="font-size:0.8em;">\(\text{MLP}(X) = \sigma(X W_1) W_2\)</p>
+    <div class="flow-diagram" style="margin:0.6em 0;">
+      <div class="flow-box" style="border-color:var(--dracula-cyan);">X<br><small>replicated</small></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box" style="border-color:var(--dracula-cyan);">Column<br>Parallel</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box" style="border-color:var(--dracula-green);">&sigma;</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box" style="border-color:var(--dracula-pink);">Row<br>Parallel</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box" style="border-color:var(--dracula-orange);">AllReduce</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box" style="border-color:var(--dracula-green);">Y</div>
+    </div>
+    <table style="font-size:0.6em;">
       <thead><tr><th>Step</th><th>Operation</th><th>Communication</th></tr></thead>
       <tbody>
-        <tr><td>Fwd Layer 1</td><td>Column parallel</td><td>None</td></tr>
-        <tr><td>Fwd Activation</td><td>Element-wise</td><td>None</td></tr>
-        <tr><td>Fwd Layer 2</td><td>Row parallel</td><td>AllReduce(Y)</td></tr>
-        <tr><td>Bwd Layer 2</td><td>Row backward</td><td>None</td></tr>
-        <tr><td>Bwd Layer 1</td><td>Column backward</td><td>AllReduce(dX)</td></tr>
+        <tr><td>Fwd Layer 1</td><td>Column parallel</td><td><span class="badge green" style="font-size:0.9em;">None</span></td></tr>
+        <tr><td>Fwd Layer 2</td><td>Row parallel</td><td><span class="badge orange" style="font-size:0.9em;">AllReduce(Y)</span></td></tr>
+        <tr><td>Bwd Layer 2</td><td>Row backward</td><td><span class="badge green" style="font-size:0.9em;">None</span></td></tr>
+        <tr><td>Bwd Layer 1</td><td>Column backward</td><td><span class="badge orange" style="font-size:0.9em;">AllReduce(dX)</span></td></tr>
       </tbody>
     </table>
     <div class="highlight-box" style="font-size:0.75em;">
-      Column output is already the correct input shard for row layer &mdash; only <strong>2 AllReduces</strong> per MLP block.
+      Only <strong>2 AllReduces</strong> per MLP block &mdash; column output is already the correct row input shard.
     </div>
   </section>
 </section>
@@ -212,29 +310,35 @@
 <section>
   <h2>System Architecture</h2>
   <div style="font-size:0.65em;">
-    <div class="arch-layer" style="background:#f3f4f6; border:2px solid #9ca3af;">
-      <strong style="color:#6b7280;">Application Layer</strong><br>
-      <code>bench_single_gpu</code> (Correctness + GFLOPS) &ensp;|&ensp; <code>bench_multi_gpu</code> (6 scaling experiments)
+    <div class="arch-layer" style="background:rgba(98,114,164,0.2); border:2px solid var(--dracula-comment);">
+      <strong style="color:var(--dracula-fg);">Application Layer</strong><br>
+      <code>bench_single_gpu</code> &ensp;|&ensp; <code>bench_multi_gpu</code> (6 experiments)
     </div>
-    <div class="arch-layer" style="background:#faf5ff; border:2px solid #a855f7;">
-      <strong style="color:#a855f7;">Tensor Parallelism Layer</strong><br>
-      Column Parallel &ensp;|&ensp; Row Parallel &ensp;|&ensp; MLP Block (overlap pipelining)
+    <div style="text-align:center; color:var(--dracula-comment); font-size:1.2em;">&darr;</div>
+    <div class="arch-layer" style="background:rgba(189,147,249,0.15); border:2px solid var(--dracula-purple);">
+      <strong style="color:var(--dracula-purple);">Tensor Parallelism Layer</strong><br>
+      Column Parallel &ensp;|&ensp; Row Parallel &ensp;|&ensp; MLP Block &ensp;|&ensp; Overlap Pipelining
     </div>
+    <div style="text-align:center; color:var(--dracula-comment); font-size:1.2em;">&darr;</div>
     <div style="display:flex; gap:0.5em;">
-      <div class="arch-layer" style="flex:1; background:#eff6ff; border:2px solid #3b82f6;">
-        <strong style="color:#3b82f6;">Kernel Layer</strong><br>
-        <code>GemmKernel</code> (abstract) &bull; <code>KernelRegistry</code> &bull; 9 kernels
+      <div class="arch-layer" style="flex:1; background:rgba(139,233,253,0.1); border:2px solid var(--dracula-cyan);">
+        <strong style="color:var(--dracula-cyan);">Kernel Layer</strong><br>
+        <code>GemmKernel</code> &bull; <code>KernelRegistry</code> &bull; 9 kernels
       </div>
-      <div class="arch-layer" style="flex:1; background:#f0fdf4; border:2px solid #22c55e;">
-        <strong style="color:#22c55e;">CUDA Resource Layer</strong><br>
+      <div class="arch-layer" style="flex:1; background:rgba(80,250,123,0.1); border:2px solid var(--dracula-green);">
+        <strong style="color:var(--dracula-green);">CUDA Resource Layer</strong><br>
         <code>CudaMemory&lt;T&gt;</code> &bull; <code>DeviceMatrix</code> &bull; <code>CudaStream</code>
       </div>
     </div>
   </div>
-  <ul style="font-size:0.7em; margin-top:0.6em;">
-    <li>Self-registering kernel registry (open-closed principle)</li>
-    <li>Move-only RAII wrappers &mdash; no manual <code>cudaFree</code></li>
-  </ul>
+  <div class="two-col" style="font-size:0.7em; margin-top:0.6em;">
+    <div class="highlight-box" style="border-color:var(--dracula-cyan);">
+      Self-registering kernel registry<br><small style="color:var(--dracula-comment);">Open-closed principle &mdash; add kernel = add 1 file</small>
+    </div>
+    <div class="highlight-box" style="border-color:var(--dracula-green);">
+      Move-only RAII wrappers<br><small style="color:var(--dracula-comment);">No manual <code>cudaFree</code>, deterministic cleanup</small>
+    </div>
+  </div>
 </section>
 
 <!-- ============================================================ -->
@@ -245,15 +349,24 @@
   <table style="font-size:0.6em;">
     <thead><tr><th>#</th><th>Kernel</th><th>Key Idea</th><th>Effect</th></tr></thead>
     <tbody>
-      <tr><td>1</td><td>Naive</td><td>1 thread &rarr; 1 element</td><td>Baseline</td></tr>
-      <tr><td>2</td><td>Coalesced</td><td>Stride-1 access</td><td>12.7&times; vs naive</td></tr>
-      <tr><td>3</td><td>Shared Mem</td><td>32&times;32 tiles</td><td>32&times; less traffic</td></tr>
-      <tr><td>4</td><td>1D BlockTile</td><td>TM=8 per thread</td><td>Better smem reuse</td></tr>
-      <tr><td>5</td><td>2D BlockTile</td><td>8&times;8 register block</td><td>8&times; fewer smem reads</td></tr>
+      <tr><td>1</td><td>Naive</td><td>1 thread &rarr; 1 element</td><td><span class="badge pink" style="font-size:0.85em;">Baseline</span></td></tr>
+      <tr><td>2</td><td>Coalesced</td><td>Stride-1 access</td><td><span class="badge green" style="font-size:0.85em;">12.7&times;</span></td></tr>
+      <tr><td>3</td><td>Shared Mem</td><td>32&times;32 tiles, reused 32&times;</td><td><span class="badge green" style="font-size:0.85em;">32&times; less traffic</span></td></tr>
+      <tr><td>4</td><td>1D BlockTile</td><td>TM=8 rows per thread</td><td>Better smem reuse</td></tr>
+      <tr><td>5</td><td>2D BlockTile</td><td>8&times;8 register block</td><td><span class="badge green" style="font-size:0.85em;">8&times; fewer smem reads</span></td></tr>
       <tr><td>6</td><td>Vectorized</td><td><code>float4</code> loads</td><td>Fewer instructions</td></tr>
-      <tr><td>7</td><td>WarpTile</td><td>Warp-level tiling</td><td>Better L1 locality</td></tr>
+      <tr><td>7</td><td>WarpTile</td><td>Block&rarr;Warp&rarr;Thread</td><td>Better L1 locality</td></tr>
     </tbody>
   </table>
+  <div class="flow-diagram" style="margin-top:0.8em;">
+    <div class="flow-box" style="border-color:var(--dracula-red);">Memory-bound<br><small>~6.3k GFLOPS</small></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box" style="border-color:var(--dracula-orange);">Transition<br><small>~9k GFLOPS</small></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box" style="border-color:var(--dracula-green);">Compute-bound<br><small>~32.8k GFLOPS</small></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box" style="border-color:var(--dracula-purple);">cuBLAS<br><small>~53.3k GFLOPS</small></div>
+  </div>
 </section>
 
 <!-- ============================================================ -->
@@ -266,30 +379,19 @@
   </section>
   <section>
     <h2>Single-GPU: Key Observations</h2>
-    <ul style="font-size:0.8em;">
-      <li><strong>Naive/Coalesced</strong>: plateau at ~6,300 GFLOPS (memory-bound)</li>
-      <li><strong>Shared memory tiling</strong>: ~9,000 GFLOPS (32&times; less traffic)</li>
-      <li><strong>2D BlockTile</strong>: 22,044 GFLOPS &mdash; 3.5&times; over smem alone</li>
-      <li><strong>Vectorized</strong>: 32,612 GFLOPS &mdash; our best at <strong>63% of cuBLAS</strong></li>
-      <li><strong>cuBLAS</strong>: 53,304 GFLOPS (Tensor Cores + auto-tuning)</li>
-    </ul>
+    <div class="img-text-row">
+      <img src="img/cublas_percentage.png" alt="cuBLAS percentage" style="max-height:45vh;">
+      <div>
+        <ul>
+          <li><strong>Naive/Coalesced</strong>: ~6,300 GFLOPS<br><small style="color:var(--dracula-comment);">memory-bandwidth-bound plateau</small></li>
+          <li><strong>Shared Mem</strong>: ~9,000 GFLOPS<br><small style="color:var(--dracula-comment);">32&times; less global memory traffic</small></li>
+          <li><strong>2D BlockTile</strong>: 22,044 GFLOPS<br><small style="color:var(--dracula-comment);">3.5&times; over smem alone</small></li>
+          <li><strong>Vectorized</strong>: 32,612 GFLOPS<br><span class="badge green">63% of cuBLAS</span></li>
+          <li><strong>cuBLAS</strong>: 53,304 GFLOPS<br><small style="color:var(--dracula-comment);">Tensor Cores + auto-tuning</small></li>
+        </ul>
+      </div>
+    </div>
   </section>
-  <section>
-    <h2>cuBLAS Percentage</h2>
-    <img src="img/cublas_percentage.png" alt="cuBLAS percentage">
-    <p style="font-size:0.7em;">Gap narrows from 12% (naive) to 63% (vectorized)</p>
-  </section>
-</section>
-
-<!-- ============================================================ -->
-<!-- ROOFLINE ANALYSIS -->
-<!-- ============================================================ -->
-<section>
-  <h2>Roofline Analysis (N=4096)</h2>
-  <img src="img/roofline.png" alt="Roofline analysis">
-  <p style="font-size:0.7em;">
-    Naive: OI &lt; 2 &ensp;&rarr;&ensp; Vectorized: OI ~9.7 &ensp;&rarr;&ensp; cuBLAS: OI ~15.4 (compute-bound)
-  </p>
 </section>
 
 <!-- ============================================================ -->
@@ -298,33 +400,36 @@
 <section>
   <section>
     <h2>Strong Scaling</h2>
-    <img src="img/strong_scaling.png" alt="Strong scaling">
-  </section>
-  <section>
-    <h2>Strong Scaling Results</h2>
-    <div class="stat-grid">
-      <div class="stat-card">
-        <div class="value">7.6&times;</div>
-        <div class="label">Speedup at N=32768<br>(8 GPUs)</div>
-      </div>
-      <div class="stat-card">
-        <div class="value">94.5%</div>
-        <div class="label">Parallel efficiency<br>(N=32768, 8 GPUs)</div>
-      </div>
-      <div class="stat-card">
-        <div class="value">400</div>
-        <div class="label">Aggregate TFLOPS<br>(8&times;H100)</div>
-      </div>
-      <div class="stat-card">
-        <div class="value">4.1&times;</div>
-        <div class="label">Speedup at N=8192<br>(8 GPUs)</div>
+    <div class="img-text-row">
+      <img src="img/strong_scaling.png" alt="Strong scaling" style="max-height:50vh;">
+      <div>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="value">7.6&times;</div>
+            <div class="label">Speedup<br>N=32768, 8 GPUs</div>
+          </div>
+          <div class="stat-card">
+            <div class="value">94.5%</div>
+            <div class="label">Parallel efficiency<br>N=32768, 8 GPUs</div>
+          </div>
+          <div class="stat-card">
+            <div class="value" style="color:var(--dracula-pink);">400</div>
+            <div class="label">Aggregate TFLOPS<br>8&times;H100</div>
+          </div>
+          <div class="stat-card">
+            <div class="value">4.1&times;</div>
+            <div class="label">Speedup<br>N=8192, 8 GPUs</div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
   <section>
     <h2>Parallel Efficiency</h2>
     <img src="img/strong_scaling_efficiency.png" alt="Parallel efficiency">
-    <p style="font-size:0.7em;">Super-linear at p=2 for N=8192 due to improved L2 cache utilization</p>
+    <p style="font-size:0.7em;">
+      Super-linear at p=2 for N=8192 &mdash; halved working set fits better in L2 cache
+    </p>
   </section>
 </section>
 
@@ -333,10 +438,23 @@
 <!-- ============================================================ -->
 <section>
   <h2>Weak Scaling</h2>
-  <img src="img/weak_scaling.png" alt="Weak scaling">
-  <p style="font-size:0.7em;">
-    Fixed 2048&times;2048 per GPU &mdash; aggregate throughput: 39.5 &rarr; 123.2 TFLOPS (3.1&times;)
-  </p>
+  <div class="img-text-row">
+    <img src="img/weak_scaling.png" alt="Weak scaling" style="max-height:50vh;">
+    <div>
+      <p>Fixed <strong>2048&times;2048</strong> per GPU</p>
+      <div class="stat-card" style="margin:0.5em 0;">
+        <div class="value">3.1&times;</div>
+        <div class="label">Throughput scaling<br>39.5 &rarr; 123.2 TFLOPS</div>
+      </div>
+      <div class="stat-card">
+        <div class="value" style="color:var(--dracula-orange);">2.6&times;</div>
+        <div class="label">Time overhead<br>0.44 &rarr; 1.12 ms</div>
+      </div>
+      <p style="font-size:0.7em; color:var(--dracula-comment); margin-top:0.5em;">
+        Sub-linear due to AllGather communication overhead growing with participants
+      </p>
+    </div>
+  </div>
 </section>
 
 <!-- ============================================================ -->
@@ -344,17 +462,36 @@
 <!-- ============================================================ -->
 <section>
   <section>
-    <h2>Comm-Compute Ratio vs. Matrix Size</h2>
-    <img src="img/comm_compute_ratio_size.png" alt="Ratio vs size">
-    <p style="font-size:0.7em;">
-      Ratio drops from 0.99 (N=2048) to 0.07 (N=32768) &mdash; cubic compute vs. quadratic comm
-    </p>
+    <h2>Comm-Compute Ratio vs. Size</h2>
+    <div class="img-text-row">
+      <img src="img/comm_compute_ratio_size.png" alt="Ratio vs size" style="max-height:48vh;">
+      <div>
+        <p>Cubic compute vs. quadratic comm:</p>
+        <div class="stat-card" style="margin:0.4em 0;">
+          <div class="value" style="color:var(--dracula-red);">0.99</div>
+          <div class="label">Ratio at N=2048<br>comm &asymp; compute</div>
+        </div>
+        <div class="stat-card">
+          <div class="value">0.07</div>
+          <div class="label">Ratio at N=32768<br>compute dominates</div>
+        </div>
+        <p style="font-size:0.7em; color:var(--dracula-comment); margin-top:0.5em;">
+          TP is most effective at large N (e.g., GPT-3 hidden dim 12288&ndash;16384)
+        </p>
+      </div>
+    </div>
   </section>
   <section>
     <h2>Comm-Compute Ratio vs. Kernel</h2>
-    <img src="img/comm_compute_ratio_kernel.png" alt="Ratio vs kernel">
+    <img src="img/comm_compute_ratio_kernel.png" alt="Ratio vs kernel" style="max-height:42vh;">
     <div class="highlight-box" style="font-size:0.75em;">
-      <strong>Key result:</strong> Communication is constant (~0.64 ms). As kernels get faster, the ratio rises from <strong>0.20</strong> (naive) to <strong>0.85</strong> (cuBLAS) &mdash; the crossover to communication-bound.
+      <strong>Key result:</strong> Communication is constant (<strong>~0.64 ms</strong>). As kernels get faster, the ratio rises from
+      <span class="badge green">0.20</span> (naive) to <span class="badge pink">0.85</span> (cuBLAS).
+    </div>
+    <div class="flow-diagram" style="font-size:0.7em;">
+      <div class="flow-box" style="border-color:var(--dracula-green);">Naive<br><small>comm = 20% of compute</small></div>
+      <div class="flow-arrow">&rarr;&rarr;&rarr;</div>
+      <div class="flow-box" style="border-color:var(--dracula-red);">cuBLAS<br><small>comm = 85% of compute</small></div>
     </div>
   </section>
 </section>
@@ -365,19 +502,38 @@
 <section>
   <section>
     <h2>MLP Forward &amp; Backward</h2>
-    <img src="img/mlp_fwd_bwd.png" alt="MLP timing">
-    <p style="font-size:0.7em;">
-      Backward 1.1&times;&ndash;1.7&times; forward (3 GEMMs/layer vs 1)
-    </p>
+    <div class="img-text-row">
+      <img src="img/mlp_fwd_bwd.png" alt="MLP timing" style="max-height:48vh;">
+      <div>
+        <p>Backward-to-forward ratio:</p>
+        <ul>
+          <li>N=2048: <strong>1.1&times;</strong></li>
+          <li>N=4096: <strong>1.4&times;</strong></li>
+          <li>N=8192: <strong>1.7&times;</strong></li>
+        </ul>
+        <p style="font-size:0.8em; color:var(--dracula-comment); margin-top:0.5em;">
+          Backward: 3 GEMMs/layer<br>
+          Forward: 1 GEMM/layer
+        </p>
+      </div>
+    </div>
   </section>
   <section>
     <h2>Communication-Compute Overlap</h2>
-    <img src="img/overlap_comparison.png" alt="Overlap comparison">
-    <ul style="font-size:0.7em;">
-      <li>Marginal benefit (1.02&times;) only at N=8192</li>
-      <li>H100 NVLink latency already very low (~1 ms for 256 MB)</li>
-      <li>More beneficial on PCIe or cross-node setups</li>
-    </ul>
+    <div class="img-text-row">
+      <img src="img/overlap_comparison.png" alt="Overlap comparison" style="max-height:48vh;">
+      <div>
+        <p>Pipeline AllReduce chunks with GEMM on separate streams:</p>
+        <ul>
+          <li>N=2048: <span class="badge pink">0.93&times;</span> overhead</li>
+          <li>N=4096: <span class="badge orange">0.96&times;</span></li>
+          <li>N=8192: <span class="badge green">1.02&times;</span> marginal gain</li>
+        </ul>
+        <div class="highlight-box" style="margin-top:0.5em; border-color:var(--dracula-orange);">
+          H100 NVLink latency already very low (~1 ms for 256 MB) &mdash; more beneficial on PCIe/InfiniBand
+        </div>
+      </div>
+    </div>
   </section>
 </section>
 
@@ -386,23 +542,29 @@
 <!-- ============================================================ -->
 <section>
   <h2>Takeaways</h2>
-  <div style="text-align:left; font-size:0.8em;">
-    <p><strong>1. Single-GPU kernel optimization</strong></p>
-    <ul>
-      <li>6,300 &rarr; 32,800 GFLOPS through 7 optimization stages</li>
-      <li>2D register blocking is the most impactful technique</li>
-      <li>Best custom kernel: 63% of cuBLAS (FP32 only, no Tensor Cores)</li>
-    </ul>
-    <p><strong>2. Multi-GPU tensor parallelism</strong></p>
-    <ul>
-      <li>7.6&times; strong scaling on 8&times;H100 (94.5% efficiency)</li>
-      <li>Comm-compute ratio: 0.20 (naive) &rarr; 0.85 (cuBLAS)</li>
-    </ul>
-    <p><strong>3. The fundamental tension</strong></p>
-    <ul>
-      <li>Faster kernels &rArr; communication becomes the bottleneck</li>
-      <li>Distributed DL requires co-optimization of compute &amp; communication</li>
-    </ul>
+  <div style="text-align:left; font-size:0.75em;">
+    <div style="display:flex; gap:1em; margin-bottom:0.6em;">
+      <div style="flex:1; background:var(--dracula-current); padding:0.6em; border-radius:8px; border-top:3px solid var(--dracula-cyan);">
+        <h3 style="margin:0 0 0.3em 0;">Single-GPU Kernels</h3>
+        <ul style="margin:0;">
+          <li>6,300 &rarr; 32,800 GFLOPS</li>
+          <li>2D register blocking most impactful</li>
+          <li>63% of cuBLAS (FP32, no Tensor Cores)</li>
+        </ul>
+      </div>
+      <div style="flex:1; background:var(--dracula-current); padding:0.6em; border-radius:8px; border-top:3px solid var(--dracula-pink);">
+        <h3 style="margin:0 0 0.3em 0; color:var(--dracula-pink);">Multi-GPU Scaling</h3>
+        <ul style="margin:0;">
+          <li>7.6&times; strong scaling (94.5% eff.)</li>
+          <li>400 TFLOPS aggregate</li>
+          <li>Ratio: 0.20 &rarr; 0.85</li>
+        </ul>
+      </div>
+    </div>
+    <div class="highlight-box" style="border-color:var(--dracula-orange); font-size:1em;">
+      <strong>The fundamental tension:</strong> Faster kernels &rArr; communication becomes the bottleneck.
+      Distributed DL requires <strong>co-optimization</strong> of compute &amp; communication.
+    </div>
   </div>
 </section>
 
@@ -410,25 +572,29 @@
 <!-- END -->
 <!-- ============================================================ -->
 <section>
-  <h2 style="margin-bottom:1em;">Thank You</h2>
-  <div class="stat-grid" style="max-width:500px; margin:0 auto;">
+  <h2 style="margin-bottom:0.8em;">Thank You</h2>
+  <div class="stat-grid" style="max-width:550px; margin:0 auto;">
     <div class="stat-card">
-      <div class="value">7</div>
+      <div class="value" style="color:var(--dracula-purple);">7</div>
       <div class="label">CUDA Kernels</div>
     </div>
     <div class="stat-card">
-      <div class="value">63%</div>
+      <div class="value" style="color:var(--dracula-pink);">63%</div>
       <div class="label">of cuBLAS</div>
     </div>
     <div class="stat-card">
-      <div class="value">8</div>
+      <div class="value" style="color:var(--dracula-cyan);">8</div>
       <div class="label">H100 GPUs</div>
     </div>
     <div class="stat-card">
-      <div class="value">400</div>
+      <div class="value" style="color:var(--dracula-green);">400</div>
       <div class="label">TFLOPS</div>
     </div>
   </div>
+  <br>
+  <p style="font-size:0.5em; color:var(--dracula-comment);">
+    Aryan Jain &bull; Fanyi Pu &bull; Ze Hong Maxwell Au &ensp;|&ensp; NTU SC4064
+  </p>
 </section>
 
 </div><!-- /.slides -->
@@ -440,7 +606,7 @@
 <script>
   Reveal.initialize({
     hash: true,
-    slideNumber: true,
+    slideNumber: 'c/t',
     width: 1280,
     height: 720,
     margin: 0.08,
