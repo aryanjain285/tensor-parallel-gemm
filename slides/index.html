@@ -93,9 +93,10 @@
     }
     .reveal table tr:nth-child(even) { background: rgba(68,71,90,0.5); }
     .reveal img {
+      aspect-ratio: 16 / 9;
+      object-fit: contain;
       max-height: 55vh;
       border-radius: 6px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
     }
     .reveal .slide-number { font-size: 12px; }
     .reveal .arch-layer {
@@ -259,6 +260,71 @@
 </section>
 
 <!-- ============================================================ -->
+<!-- SYSTEM DESIGN -->
+<!-- ============================================================ -->
+<section>
+  <h2>System Architecture</h2>
+  <div style="font-size:0.65em;">
+    <div class="arch-layer" style="background:rgba(98,114,164,0.2); border:2px solid var(--dracula-comment);">
+      <strong style="color:var(--dracula-fg);">Application Layer</strong><br>
+      <code>bench_single_gpu</code> &ensp;|&ensp; <code>bench_multi_gpu</code> (6 experiments)
+    </div>
+    <div style="text-align:center; color:var(--dracula-comment); font-size:1.2em;">&darr;</div>
+    <div class="arch-layer" style="background:rgba(189,147,249,0.15); border:2px solid var(--dracula-purple);">
+      <strong style="color:var(--dracula-purple);">Tensor Parallelism Layer</strong><br>
+      Column Parallel &ensp;|&ensp; Row Parallel &ensp;|&ensp; MLP Block &ensp;|&ensp; Overlap Pipelining
+    </div>
+    <div style="text-align:center; color:var(--dracula-comment); font-size:1.2em;">&darr;</div>
+    <div style="display:flex; gap:0.5em;">
+      <div class="arch-layer" style="flex:1; background:rgba(139,233,253,0.1); border:2px solid var(--dracula-cyan);">
+        <strong style="color:var(--dracula-cyan);">Kernel Layer</strong><br>
+        <code>GemmKernel</code> &bull; <code>KernelRegistry</code> &bull; 9 kernels
+      </div>
+      <div class="arch-layer" style="flex:1; background:rgba(80,250,123,0.1); border:2px solid var(--dracula-green);">
+        <strong style="color:var(--dracula-green);">CUDA Resource Layer</strong><br>
+        <code>CudaMemory&lt;T&gt;</code> &bull; <code>DeviceMatrix</code> &bull; <code>CudaStream</code>
+      </div>
+    </div>
+  </div>
+  <div class="two-col" style="font-size:0.7em; margin-top:0.6em;">
+    <div class="highlight-box" style="border-color:var(--dracula-cyan);">
+      Self-registering kernel registry<br><small style="color:var(--dracula-comment);">Open-closed principle &mdash; add kernel = add 1 file</small>
+    </div>
+    <div class="highlight-box" style="border-color:var(--dracula-green);">
+      Move-only RAII wrappers<br><small style="color:var(--dracula-comment);">No manual <code>cudaFree</code>, deterministic cleanup</small>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- KERNEL OPTIMIZATION ROADMAP -->
+<!-- ============================================================ -->
+<section>
+  <h2>Kernel Optimization Roadmap</h2>
+  <table style="font-size:0.6em;">
+    <thead><tr><th>#</th><th>Kernel</th><th>Key Idea</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Naive</td><td>1 thread &rarr; 1 element</td><td><span class="badge pink" style="font-size:0.85em;">Baseline</span></td></tr>
+      <tr><td>2</td><td>Coalesced</td><td>Stride-1 access</td><td><span class="badge green" style="font-size:0.85em;">12.7&times;</span></td></tr>
+      <tr><td>3</td><td>Shared Mem</td><td>32&times;32 tiles, reused 32&times;</td><td><span class="badge green" style="font-size:0.85em;">32&times; less traffic</span></td></tr>
+      <tr><td>4</td><td>1D BlockTile</td><td>TM=8 rows per thread</td><td>Better smem reuse</td></tr>
+      <tr><td>5</td><td>2D BlockTile</td><td>8&times;8 register block</td><td><span class="badge green" style="font-size:0.85em;">8&times; fewer smem reads</span></td></tr>
+      <tr><td>6</td><td>Vectorized</td><td><code>float4</code> loads</td><td>Fewer instructions</td></tr>
+      <tr><td>7</td><td>WarpTile</td><td>Block&rarr;Warp&rarr;Thread</td><td>Better L1 locality</td></tr>
+    </tbody>
+  </table>
+  <div class="flow-diagram" style="margin-top:0.8em;">
+    <div class="flow-box" style="border-color:var(--dracula-red);">Memory-bound<br><small>~6.3k GFLOPS</small></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box" style="border-color:var(--dracula-orange);">Transition<br><small>~9k GFLOPS</small></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box" style="border-color:var(--dracula-green);">Compute-bound<br><small>~32.8k GFLOPS</small></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box" style="border-color:var(--dracula-purple);">cuBLAS<br><small>~53.3k GFLOPS</small></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
 <!-- BACKGROUND: ROOFLINE -->
 <!-- ============================================================ -->
 <section>
@@ -332,71 +398,6 @@
       Only <strong>2 AllReduces</strong> per MLP block &mdash; column output is already the correct row input shard.
     </div>
   </section>
-</section>
-
-<!-- ============================================================ -->
-<!-- SYSTEM DESIGN -->
-<!-- ============================================================ -->
-<section>
-  <h2>System Architecture</h2>
-  <div style="font-size:0.65em;">
-    <div class="arch-layer" style="background:rgba(98,114,164,0.2); border:2px solid var(--dracula-comment);">
-      <strong style="color:var(--dracula-fg);">Application Layer</strong><br>
-      <code>bench_single_gpu</code> &ensp;|&ensp; <code>bench_multi_gpu</code> (6 experiments)
-    </div>
-    <div style="text-align:center; color:var(--dracula-comment); font-size:1.2em;">&darr;</div>
-    <div class="arch-layer" style="background:rgba(189,147,249,0.15); border:2px solid var(--dracula-purple);">
-      <strong style="color:var(--dracula-purple);">Tensor Parallelism Layer</strong><br>
-      Column Parallel &ensp;|&ensp; Row Parallel &ensp;|&ensp; MLP Block &ensp;|&ensp; Overlap Pipelining
-    </div>
-    <div style="text-align:center; color:var(--dracula-comment); font-size:1.2em;">&darr;</div>
-    <div style="display:flex; gap:0.5em;">
-      <div class="arch-layer" style="flex:1; background:rgba(139,233,253,0.1); border:2px solid var(--dracula-cyan);">
-        <strong style="color:var(--dracula-cyan);">Kernel Layer</strong><br>
-        <code>GemmKernel</code> &bull; <code>KernelRegistry</code> &bull; 9 kernels
-      </div>
-      <div class="arch-layer" style="flex:1; background:rgba(80,250,123,0.1); border:2px solid var(--dracula-green);">
-        <strong style="color:var(--dracula-green);">CUDA Resource Layer</strong><br>
-        <code>CudaMemory&lt;T&gt;</code> &bull; <code>DeviceMatrix</code> &bull; <code>CudaStream</code>
-      </div>
-    </div>
-  </div>
-  <div class="two-col" style="font-size:0.7em; margin-top:0.6em;">
-    <div class="highlight-box" style="border-color:var(--dracula-cyan);">
-      Self-registering kernel registry<br><small style="color:var(--dracula-comment);">Open-closed principle &mdash; add kernel = add 1 file</small>
-    </div>
-    <div class="highlight-box" style="border-color:var(--dracula-green);">
-      Move-only RAII wrappers<br><small style="color:var(--dracula-comment);">No manual <code>cudaFree</code>, deterministic cleanup</small>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<!-- KERNEL OPTIMIZATION ROADMAP -->
-<!-- ============================================================ -->
-<section>
-  <h2>Kernel Optimization Roadmap</h2>
-  <table style="font-size:0.6em;">
-    <thead><tr><th>#</th><th>Kernel</th><th>Key Idea</th><th>Effect</th></tr></thead>
-    <tbody>
-      <tr><td>1</td><td>Naive</td><td>1 thread &rarr; 1 element</td><td><span class="badge pink" style="font-size:0.85em;">Baseline</span></td></tr>
-      <tr><td>2</td><td>Coalesced</td><td>Stride-1 access</td><td><span class="badge green" style="font-size:0.85em;">12.7&times;</span></td></tr>
-      <tr><td>3</td><td>Shared Mem</td><td>32&times;32 tiles, reused 32&times;</td><td><span class="badge green" style="font-size:0.85em;">32&times; less traffic</span></td></tr>
-      <tr><td>4</td><td>1D BlockTile</td><td>TM=8 rows per thread</td><td>Better smem reuse</td></tr>
-      <tr><td>5</td><td>2D BlockTile</td><td>8&times;8 register block</td><td><span class="badge green" style="font-size:0.85em;">8&times; fewer smem reads</span></td></tr>
-      <tr><td>6</td><td>Vectorized</td><td><code>float4</code> loads</td><td>Fewer instructions</td></tr>
-      <tr><td>7</td><td>WarpTile</td><td>Block&rarr;Warp&rarr;Thread</td><td>Better L1 locality</td></tr>
-    </tbody>
-  </table>
-  <div class="flow-diagram" style="margin-top:0.8em;">
-    <div class="flow-box" style="border-color:var(--dracula-red);">Memory-bound<br><small>~6.3k GFLOPS</small></div>
-    <div class="flow-arrow">&rarr;</div>
-    <div class="flow-box" style="border-color:var(--dracula-orange);">Transition<br><small>~9k GFLOPS</small></div>
-    <div class="flow-arrow">&rarr;</div>
-    <div class="flow-box" style="border-color:var(--dracula-green);">Compute-bound<br><small>~32.8k GFLOPS</small></div>
-    <div class="flow-arrow">&rarr;</div>
-    <div class="flow-box" style="border-color:var(--dracula-purple);">cuBLAS<br><small>~53.3k GFLOPS</small></div>
-  </div>
 </section>
 
 <!-- ============================================================ -->

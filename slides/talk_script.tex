@@ -1,0 +1,92 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{enumitem}
+
+\title{Presentation Script: Scaling Matrix Multiplication\\
+\large From CUDA Kernels to Multi-GPU Tensor Parallelism}
+\author{Aryan Jain \and Fanyi Pu \and Ze Hong Maxwell Au}
+\date{April 2026}
+
+\begin{document}
+\maketitle
+
+\section*{How to Use}
+\begin{itemize}[leftmargin=1.5em]
+  \item This script follows the current slide order in your deck.
+  \item It is written as one complete narrative so your team can split it however you want.
+  \item Keep delivery conversational; this is a speaking guide, not a strict transcript.
+\end{itemize}
+
+\section*{Slide-by-Slide Script}
+
+\subsection*{1) Title}
+Today we present our project on scaling matrix multiplication, from custom CUDA kernels on one GPU to tensor-parallel execution on multiple GPUs. Our central theme is the tradeoff between faster compute and communication overhead.
+
+\subsection*{2) Motivation}
+GEMM is at the core of deep learning workloads. As model dimensions scale up, one GPU is often not enough, so tensor parallelism becomes necessary. Our goal was not only to call cuBLAS, but to understand what drives performance and how bottlenecks shift as we optimize.
+
+\subsection*{3) Overview}
+The project has two main parts. First, we built and benchmarked seven progressively optimized CUDA GEMM kernels. Second, we implemented tensor parallelism with NCCL over 8 H100 GPUs. The key question is: when kernels get faster, at what point does communication become the dominant cost?
+
+\subsection*{4) GPU Memory Hierarchy (H100)}
+This slide explains why kernel optimization works. Accessing registers and shared memory is far faster than repeatedly loading from HBM. Most successful optimizations can be interpreted as moving reuse toward lower-latency, higher-bandwidth memory levels.
+
+\subsection*{5) System Architecture}
+At the system level, we organized the code into clean layers: benchmark applications, tensor-parallel operators, a kernel registry, and CUDA RAII utilities. This made it easier to add kernels, compare implementations, and keep memory and stream management safe and deterministic.
+
+\subsection*{6) Kernel Optimization Roadmap}
+We then optimized from naive mapping to coalesced access, shared-memory tiling, register blocking, vectorized loads, and warp-level tiling. The overall strategy is to reduce redundant memory traffic and improve locality at every stage.
+
+\subsection*{7) Roofline Model}
+Now we connect these optimizations to a performance model. Roofline says performance is bounded by either the compute peak or memory bandwidth multiplied by operational intensity. Since GEMM operational intensity grows with matrix size, larger GEMMs trend toward compute-bound behavior.
+
+\subsection*{8) Tensor Parallelism}
+To scale beyond one GPU, we split linear layers across devices using column and row parallelism, following the Megatron-LM style. The core practical question is where collectives are required in forward and backward passes.
+
+\subsection*{9) Parallel MLP Block}
+For the MLP block, this decomposition results in two AllReduces per block in our design. This gives a practical balance between parallel compute throughput and communication cost.
+
+\subsection*{10) Single-GPU: GFLOPS}
+This result shows progressive gains from optimization. Early kernels are clearly memory-limited, while later kernels move closer to the compute ceiling.
+
+\subsection*{11) Single-GPU: Key Observations}
+The biggest jumps come from improved data reuse and register/shared-memory blocking. Our best custom FP32 kernel reaches about 63\% of cuBLAS, which is strong given cuBLAS benefits from deeper auto-tuning and Tensor Core paths.
+
+\subsection*{12) Strong Scaling}
+Under fixed problem size, we observe substantial speedup up to 8 GPUs, with high efficiency at larger matrix sizes. This suggests communication is significant but not yet overwhelming in that regime.
+
+\subsection*{13) Parallel Efficiency}
+Efficiency drops more at smaller matrix sizes, where communication and launch overhead are relatively larger. We also see a slight super-linear effect at low GPU count due to improved cache behavior when each GPU handles a smaller working set.
+
+\subsection*{14) Weak Scaling}
+With fixed workload per GPU, throughput still increases with more GPUs, but not linearly. Collective communication overhead grows with participant count and limits ideal weak scaling.
+
+\subsection*{15) Comm-Compute Ratio vs. Size}
+This is one of the key insights: compute grows cubically with problem size, while communication grows closer to quadratically. As a result, larger matrices naturally improve the communication-to-compute balance for tensor parallelism.
+
+\subsection*{16) Comm-Compute Ratio vs. Kernel}
+A second key insight is that as kernels become faster, communication time does not shrink proportionally. Communication therefore becomes a larger fraction of step time. In other words, better single-GPU compute can expose the distributed bottleneck.
+
+\subsection*{17) MLP Forward \& Backward}
+Backward is more expensive than forward because it includes additional GEMMs and gradient-related communication. The backward-to-forward ratio increases with size, which matters directly for end-to-end training cost.
+
+\subsection*{18) Communication-Compute Overlap}
+We tested stream-based overlap between GEMM and chunked AllReduce operations. Gains are modest on H100 NVLink because baseline communication latency is already low. This technique is likely more beneficial on slower interconnects, such as PCIe or Ethernet-based clusters.
+
+\subsection*{19) Takeaways}
+In summary, kernel engineering significantly improves single-GPU performance, tensor parallelism scales well for sufficiently large problems, and the fundamental tension is that as compute gets faster, communication increasingly dominates.
+
+\subsection*{20) Thank You / Q\&A}
+Thank you. We welcome questions on kernel design, NCCL collectives, and how these tradeoffs map to modern LLM training workloads.
+
+\section*{Optional Short Transitions}
+\begin{itemize}[leftmargin=1.5em]
+  \item Before Roofline: "Now that the implementation path is clear, we use a model to explain the observed limits."
+  \item Before Tensor Parallelism: "After optimizing one GPU, we now scale the same ideas across multiple devices."
+  \item Before Takeaways: "Putting all results together, here are the practical conclusions."
+\end{itemize}
+
+\end{document}
