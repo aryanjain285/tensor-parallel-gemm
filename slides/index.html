@@ -299,6 +299,11 @@
 <!-- ============================================================ -->
 <!-- KERNEL OPTIMIZATION ROADMAP -->
 <!-- ============================================================ -->
+
+<!-- ============================================================ -->
+<!-- KERNEL CODE DEEP-DIVE (sub-slides) -->
+<!-- ============================================================ -->
+<section>
 <section>
   <h2>Kernel Optimization Roadmap</h2>
   <table style="font-size:0.6em;">
@@ -323,11 +328,6 @@
     <div class="flow-box" style="border-color:var(--dracula-purple);">cuBLAS<br><small>~53.3k GFLOPS</small></div>
   </div>
 </section>
-
-<!-- ============================================================ -->
-<!-- KERNEL CODE DEEP-DIVE (sub-slides) -->
-<!-- ============================================================ -->
-<section>
   <section>
     <h2>Kernel 1: Naive</h2>
     <p style="font-size:0.7em; color:var(--dracula-comment);">1 thread &rarr; 1 element &mdash; no data reuse</p>
@@ -513,7 +513,7 @@ for (int k = 0; k < BK; k++) {
 <!-- ============================================================ -->
 <!-- BACKGROUND: ROOFLINE -->
 <!-- ============================================================ -->
-<section>
+<!-- <section>
   <h2>Roofline Model</h2>
   <div class="img-text-row">
     <img src="img/roofline.png" alt="Roofline analysis" style="max-height:45vh;">
@@ -531,7 +531,7 @@ for (int k = 0; k < BK; k++) {
       </p>
     </div>
   </div>
-</section>
+</section> -->
 
 <!-- ============================================================ -->
 <!-- TENSOR PARALLELISM -->
