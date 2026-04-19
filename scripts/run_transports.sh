@@ -46,7 +46,7 @@ NTOTAL=$((WORLD_SIZE * NLOCAL))
 BASE_PORT="$MASTER_PORT"
 
 # Each entry: "tag|KEY1=VAL1 KEY2=VAL2 ..."  (empty env string = NCCL defaults)
-# Override by exporting TRANSPORTS as a semicolon-separated list before calling.
+# Override by exporting TRANSPORTS as a newline-separated list before calling.
 if [ -z "${TRANSPORTS:-}" ]; then
     TRANSPORTS='auto|
 ib|NCCL_NET=IB NCCL_IB_DISABLE=0
@@ -86,7 +86,10 @@ run_one() {
         esac
     done
 
-    export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
+    # INFO is verbose but writes to stderr -- our parser reads stdout only, so
+    # this doesn't corrupt the table.  It makes "unhandled cuda error" and
+    # similar NCCL errors diagnosable after the fact.
+    export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
     export NCCL_ASYNC_ERROR_HANDLING=1
     export TRANSPORT_TAG="$tag"
     export MASTER_PORT="$port"

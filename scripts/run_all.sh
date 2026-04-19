@@ -2,22 +2,21 @@
 # ===========================================================================
 # One-click driver: build, run every experiment, merge results into JSON.
 #
-# Runs differently depending on role (auto-detected from env):
-#   single-node (no WORLD_SIZE / WORLD_SIZE=1)
-#       build -> single-GPU bench -> single-node multi-GPU bench
-#       -> merge to JSON -> plots
-#   master   (RANK=0, WORLD_SIZE>1)
-#       build -> single-GPU bench -> single-node bench
-#       -> cross-node bench (acts as NCCL server)
-#       -> merge to JSON -> plots
-#   worker   (RANK>0, WORLD_SIZE>1)
-#       build -> cross-node bench only (joins NCCL as peer, no JSON/plots)
+# Execution order is chosen so master and worker spend as little time idling
+# on each other as possible:
 #
-# The same script runs on every pod of a PyTorchJob.  Workers idle on the
-# TCP bootstrap retry loop while master finishes its single-node stages.
+#   Stage 1  Build                                 (both roles)
+#   Stage 2  Cross-node transport sweep            (both roles, rendezvous)
+#   Stage 3  Single-GPU bench                      (master only)
+#   Stage 4  Single-node multi-GPU bench           (master only)
+#   Stage 5  Merge JSON                            (master only)
+#   Stage 6  Plots                                 (master only)
 #
-# Env vars (set by the K8s PyTorchJob orchestrator):
-#   MASTER_ADDR, MASTER_PORT, WORLD_SIZE (nodes), RANK (node rank)
+# Worker exits after stage 2; master continues with the local stages.
+#
+# Same script runs on every pod of a PyTorchJob.  Env vars expected
+# (injected by the K8s orchestrator):
+#   MASTER_ADDR, MASTER_PORT, WORLD_SIZE (NODES, not GPUs), RANK
 #
 # Override knobs:
 #   GPU_ARCH         (default sm_90 = H100; use sm_80 for A100)
@@ -51,41 +50,26 @@ mkdir -p "$RESULTS_DIR"
 hrule() { printf '%.0s=' {1..70}; printf '\n'; }
 banner() { echo ""; hrule; echo " $*"; hrule; }
 
-# -- 1. Build ----------------------------------------------------------------
+SINGLE_GPU_OUT="$RESULTS_DIR/single_gpu.txt"
+SINGLE_NODE_OUT="$RESULTS_DIR/multi_gpu.txt"
+
+NCCL_DEBUG=INFO
+
+# -- 1. Build (both roles) ---------------------------------------------------
 if [ "$SKIP_BUILD" != "1" ]; then
-    banner "Stage 1/6: Build (GPU_ARCH=$GPU_ARCH)"
+    banner "Stage 1/6: Build (GPU_ARCH=$GPU_ARCH, rank $RANK)"
     make all GPU_ARCH="$GPU_ARCH"
 else
     echo "info: SKIP_BUILD=1 -- skipping build"
 fi
 
-# -- 2/3. Single-node stages (master or standalone only) --------------------
-SINGLE_GPU_OUT="$RESULTS_DIR/single_gpu.txt"
-SINGLE_NODE_OUT="$RESULTS_DIR/multi_gpu.txt"
-
-if [ "$IS_MASTER" = "1" ]; then
-    if [ "$SKIP_SINGLE_GPU" != "1" ]; then
-        banner "Stage 2/6: Single-GPU benchmark"
-        ./build/bench_single_gpu 2>&1 | tee "$SINGLE_GPU_OUT"
-    fi
-    if [ "$SKIP_SINGLE_NODE" != "1" ] && [ "$NLOCAL" -ge 2 ]; then
-        banner "Stage 3/6: Single-node multi-GPU benchmark ($NLOCAL GPUs)"
-        ./build/bench_multi_gpu "$NLOCAL" 2>&1 | tee "$SINGLE_NODE_OUT"
-    elif [ "$IS_MASTER" = "1" ]; then
-        echo "info: single-node multi-GPU skipped (NLOCAL=$NLOCAL)"
-    fi
-else
-    echo "info: rank $RANK is a worker; skipping stages 2 and 3"
-fi
-
-# -- 4. Cross-node transport sweep ------------------------------------------
-# Produces results/multi_node_${NTOTAL}gpu_<tag>.txt for each transport in
-# the sweep.  Default sweep: auto, ib, tcp, ring, tree (override via
-# TRANSPORTS env -- see scripts/run_transports.sh).  Set
-# SKIP_MULTI_NODE_SWEEP=1 + MULTI_NODE_SINGLE_TAG=auto to run just one.
+# -- 2. Cross-node transport sweep (both roles) ------------------------------
+# Run this FIRST so master and worker meet at the NCCL rendezvous quickly
+# after build.  Otherwise worker would sit idle through the long single-node
+# stages.  Worker exits after this stage; master continues below.
 
 if [ "$SKIP_MULTI_NODE" != "1" ] && [ "$WORLD_SIZE" -gt 1 ]; then
-    banner "Stage 4/6: Cross-node benchmark (rank $RANK of $WORLD_SIZE, ${NTOTAL} GPUs total)"
+    banner "Stage 2/6: Cross-node benchmark (rank $RANK of $WORLD_SIZE, ${NTOTAL} GPUs total)"
     : "${MASTER_ADDR:?MASTER_ADDR not set (required when WORLD_SIZE>1)}"
     : "${MASTER_PORT:?MASTER_PORT not set (required when WORLD_SIZE>1)}"
 
@@ -108,20 +92,33 @@ elif [ "$WORLD_SIZE" -le 1 ]; then
     echo "info: WORLD_SIZE=$WORLD_SIZE (single-node), skipping cross-node stage"
 fi
 
-# -- Worker exits here (no merge / plot on workers) --------------------------
+# -- Worker exits here (no more stages for worker) ---------------------------
 if [ "$IS_MASTER" != "1" ]; then
     banner "Worker done (rank $RANK)"
     exit 0
 fi
 
-# -- 5. Merge ----------------------------------------------------------------
+# -- 3. Single-GPU bench (master only) ---------------------------------------
+if [ "$SKIP_SINGLE_GPU" != "1" ]; then
+    banner "Stage 3/6: Single-GPU benchmark"
+    ./build/bench_single_gpu 2>&1 | tee "$SINGLE_GPU_OUT"
+fi
+
+# -- 4. Single-node multi-GPU bench (master only) ----------------------------
+if [ "$SKIP_SINGLE_NODE" != "1" ] && [ "$NLOCAL" -ge 2 ]; then
+    banner "Stage 4/6: Single-node multi-GPU benchmark ($NLOCAL GPUs)"
+    ./build/bench_multi_gpu "$NLOCAL" 2>&1 | tee "$SINGLE_NODE_OUT"
+elif [ "$SKIP_SINGLE_NODE" != "1" ]; then
+    echo "info: only $NLOCAL GPU visible -- skipping single-node multi-GPU stage"
+fi
+
+# -- 5. Merge JSON -----------------------------------------------------------
 banner "Stage 5/6: Merge -> $RESULTS_DIR/benchmark_results.json"
 
 MERGE_ARGS=()
 [ -f "$SINGLE_GPU_OUT" ]   && MERGE_ARGS+=(--single-gpu   "$SINGLE_GPU_OUT")
 [ -f "$SINGLE_NODE_OUT" ]  && MERGE_ARGS+=(--single-node  "$SINGLE_NODE_OUT")
 
-# Pick up every per-transport file, tag inferred from filename
 shopt -s nullglob
 for f in "$RESULTS_DIR"/multi_node_${NTOTAL}gpu_*.txt \
          "$RESULTS_DIR"/multi_node_${NTOTAL}gpu.txt; do

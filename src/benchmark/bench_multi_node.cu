@@ -151,7 +151,10 @@ static void tcp_broadcast_nccl_id(ncclUniqueId& id, const NodeEnv& env) {
         snprintf(port_s, sizeof(port_s), "%d", env.master_port);
 
         int s = -1;
-        for (int attempt = 0; attempt < 120; attempt++) {
+        // Up to 1 hour of 1-second retries.  Master may be slow starting (e.g.
+        // still building, or running its own local stages); we want the worker
+        // to patiently wait rather than fail fast.
+        for (int attempt = 0; attempt < 3600; attempt++) {
             addrinfo hints{};
             addrinfo* res = nullptr;
             hints.ai_family = AF_UNSPEC;
@@ -208,16 +211,28 @@ struct DeviceContext {
 };
 
 // Build all per-GPU NCCL communicators inside one ncclGroupStart/End call.
+//
+// IMPORTANT: cudaSetDevice(i) MUST run before DeviceContext is constructed --
+// CudaStream and CublasHandle are created in the member-init list, which
+// happens before the constructor body, so the current device at the moment
+// of `make_unique<DeviceContext>()` is what the streams / handle bind to.
+// Getting this wrong produces streams bound to the *previous* GPU, which
+// works accidentally for IB/RDMA transports (NIC bypasses the stream) but
+// surfaces as "unhandled cuda error" for TCP-socket / Ring-kernel paths
+// that rely on the stream executing on the comm's device.
 static void init_device_contexts(std::vector<std::unique_ptr<DeviceContext>>& ctxs,
                                  const NodeEnv& env, const ncclUniqueId& id) {
     ctxs.resize(env.local_gpus);
-    for (int i = 0; i < env.local_gpus; i++) ctxs[i] = std::make_unique<DeviceContext>();
+    for (int i = 0; i < env.local_gpus; i++) {
+        CUDA_CHECK(cudaSetDevice(i));
+        ctxs[i] = std::make_unique<DeviceContext>();
+        ctxs[i]->local_gpu = i;
+        ctxs[i]->world_rank = env.node_rank * env.local_gpus + i;
+    }
 
     NCCL_CHECK(ncclGroupStart());
     for (int i = 0; i < env.local_gpus; i++) {
         CUDA_CHECK(cudaSetDevice(i));
-        ctxs[i]->local_gpu = i;
-        ctxs[i]->world_rank = env.node_rank * env.local_gpus + i;
         NCCL_CHECK(ncclCommInitRank(&ctxs[i]->comm, env.world_size, id, ctxs[i]->world_rank));
     }
     NCCL_CHECK(ncclGroupEnd());

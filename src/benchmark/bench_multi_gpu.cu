@@ -31,7 +31,10 @@ struct DeviceContext {
     CudaStream compute_stream;
     CudaStream comm_stream;
 
-    explicit DeviceContext(int dev) : device_id(dev) { CUDA_CHECK(cudaSetDevice(dev)); }
+    // The caller MUST cudaSetDevice(dev) BEFORE constructing -- member
+    // initialisers run before the constructor body, so handle and streams
+    // would otherwise bind to whatever the current device happened to be.
+    explicit DeviceContext(int dev) : device_id(dev) {}
 
     /// Activate this GPU context on the current thread: set device + cuBLAS handle.
     void activate() const {
@@ -240,10 +243,13 @@ int main(int argc, char** argv) {
     printf("Max GPUs used:      %d\n", max_gpus);
     printf("Local GEMM kernel:  %s\n\n", kernel.name());
 
-    // Initialize per-GPU contexts (RAII: handle + streams auto-managed)
+    // Initialize per-GPU contexts (RAII: handle + streams auto-managed).
+    // cudaSetDevice BEFORE emplace_back so the handle + streams are bound
+    // to the right device at construction time.
     std::vector<DeviceContext> contexts;
     contexts.reserve(max_gpus);
     for (int g = 0; g < max_gpus; g++) {
+        CUDA_CHECK(cudaSetDevice(g));
         contexts.emplace_back(g);
         print_device_info();
     }
