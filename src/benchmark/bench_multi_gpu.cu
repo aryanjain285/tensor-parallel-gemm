@@ -262,8 +262,8 @@ int main(int argc, char** argv) {
     // col_sizes includes 49152 (37 GB/GPU at 1 GPU); 65536 would OOM on 1 GPU.
     // mlp_sizes / ovlp_sizes stay at 32768 because of the 6/4 full M*N
     // buffers per GPU (memory bound, not compute bound).
-    const std::vector<int> col_sizes  = {2048, 4096, 8192, 16384, 32768, 49152};
-    const std::vector<int> mlp_sizes  = {2048, 4096, 8192, 16384, 32768};
+    const std::vector<int> col_sizes = {2048, 4096, 8192, 16384, 32768, 49152};
+    const std::vector<int> mlp_sizes = {2048, 4096, 8192, 16384, 32768};
     const std::vector<int> ovlp_sizes = {2048, 4096, 8192, 16384, 32768};
     const std::vector<int> weak_sizes = {2048, 4096, 8192};
     constexpr int kWarmup = 5;
@@ -275,8 +275,9 @@ int main(int argc, char** argv) {
     printf("===== Exp 1: Strong Scaling — Column Parallel Forward =====\n");
     printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s %10s  %8s\n", "M", "N", "K", "GPUs",
            "GEMM(ms)", "GEMM_std", "Comm(ms)", "Comm_std", "Total(ms)", "Total_std", "GFLOPS");
-    printf("--------------------------------------------------------------------------"
-           "-----------------------\n");
+    printf(
+        "--------------------------------------------------------------------------"
+        "-----------------------\n");
 
     for (int active_gpus : scaling_counts) {
         for (int S : col_sizes) {
@@ -329,11 +330,11 @@ int main(int argc, char** argv) {
     // Experiment 2: Weak Scaling
     // =====================================================================
     printf("\n===== Exp 2: Weak Scaling — per-GPU tile sweep × GPU count =====\n");
-    printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s %10s  %8s\n", "M", "N_tot", "K",
-           "GPUs", "GEMM(ms)", "GEMM_std", "Comm(ms)", "Comm_std", "Total(ms)", "Total_std",
-           "GFLOPS");
-    printf("--------------------------------------------------------------------------"
-           "-----------------------\n");
+    printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s %10s  %8s\n", "M", "N_tot", "K", "GPUs",
+           "GEMM(ms)", "GEMM_std", "Comm(ms)", "Comm_std", "Total(ms)", "Total_std", "GFLOPS");
+    printf(
+        "--------------------------------------------------------------------------"
+        "-----------------------\n");
 
     for (int active_gpus : scaling_counts) {
         for (int per_gpu : weak_sizes) {
@@ -467,8 +468,9 @@ int main(int argc, char** argv) {
     printf("\n===== Exp 5: Parallel MLP Forward + Backward (%d GPUs) =====\n", max_gpus);
     printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s\n", "M", "H", "N", "GPUs", "Fwd(ms)",
            "Fwd_std", "Bwd(ms)", "Bwd_std", "Total(ms)");
-    printf("------------------------------------------------------------------------"
-           "-----\n");
+    printf(
+        "------------------------------------------------------------------------"
+        "-----\n");
 
     // Square shape (M=K=H=N=S, what was here before).
     for (int S : mlp_sizes) {
@@ -518,7 +520,7 @@ int main(int argc, char** argv) {
         int K;
     };
     const std::vector<MLPShape> mlp_shapes = {
-        { 8192, 2048},
+        {8192, 2048},
         {16384, 4096},
         {32768, 8192},
         {32768, 12288},
@@ -566,8 +568,9 @@ int main(int argc, char** argv) {
     printf("\n===== Exp 6: Row Parallel — No Overlap vs Overlap (%d GPUs) =====\n", max_gpus);
     printf("%-6s  %-8s  %10s %10s  %10s %10s  %8s\n", "Size", "Chunks", "NoOvlp(ms)", "NoOvlp_std",
            "Overlap(ms)", "Overlap_std", "Speedup");
-    printf("------------------------------------------------------------------------"
-           "---\n");
+    printf(
+        "------------------------------------------------------------------------"
+        "---\n");
 
     for (int S : ovlp_sizes) {
         const int M = S, N = S, K = S;

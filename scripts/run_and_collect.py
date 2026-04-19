@@ -68,7 +68,7 @@ def parse_single_gpu(text):
     m = re.search(r"Performance Benchmark \(GFLOPS[^)]*\)", text)
     if not m:
         return result
-    block = text[m.end():]
+    block = text[m.end() :]
 
     # Stop at the next section header so we don't bleed into the stddev table.
     nxt = re.search(r"^=====", block, re.MULTILINE)
@@ -117,7 +117,7 @@ def parse_single_gpu(text):
     # Optional: stddev table (CoV %)
     m_std = re.search(r"Performance Stddev \([^)]*\)", text)
     if m_std:
-        std_block = text[m_std.end():]
+        std_block = text[m_std.end() :]
         nxt = re.search(r"^=====", std_block, re.MULTILINE)
         std_block = std_block[: nxt.start()] if nxt else std_block
         std_rows, _ = _parse_kernel_by_size(std_block)
@@ -126,7 +126,7 @@ def parse_single_gpu(text):
     # Optional: detailed timing table at M=N=K=2048
     m_det = re.search(r"Detailed Timing at M=N=K=2048[^\n]*\n", text)
     if m_det:
-        det_block = text[m_det.end():]
+        det_block = text[m_det.end() :]
         nxt = re.search(r"^=====|^\nDone\.", det_block, re.MULTILINE)
         det_block = det_block[: nxt.start()] if nxt else det_block
         for line in det_block.splitlines():
@@ -143,8 +143,13 @@ def parse_single_gpu(text):
                 mean, median, stddev, mn, mx = (float(x) for x in parts[1:])
             except ValueError:
                 continue
-            result["detail_2048"][k] = {"mean": mean, "median": median, "stddev": stddev,
-                                        "min": mn, "max": mx}
+            result["detail_2048"][k] = {
+                "mean": mean,
+                "median": median,
+                "stddev": stddev,
+                "min": mn,
+                "max": mx,
+            }
 
     return result
 
@@ -265,13 +270,18 @@ def mode_reparse(outpath: Path):
         out = json.load(f)
     if "single_gpu" in out and "raw" in out["single_gpu"]:
         raw = out["single_gpu"]["raw"]
-        out["single_gpu"] = {**parse_single_gpu(raw), "raw": raw,
-                             **{k: out["single_gpu"][k] for k in out["single_gpu"]
-                                if k in ("elapsed_s",)}}
+        out["single_gpu"] = {
+            **parse_single_gpu(raw),
+            "raw": raw,
+            **{k: out["single_gpu"][k] for k in out["single_gpu"] if k in ("elapsed_s",)},
+        }
     if "multi_gpu" in out and "raw" in out["multi_gpu"]:
         raw = out["multi_gpu"]["raw"]
-        keep = {k: out["multi_gpu"][k] for k in out["multi_gpu"]
-                if k in ("elapsed_s", "max_gpus", "kernel")}
+        keep = {
+            k: out["multi_gpu"][k]
+            for k in out["multi_gpu"]
+            if k in ("elapsed_s", "max_gpus", "kernel")
+        }
         out["multi_gpu"] = {**parse_experiments(raw), "raw": raw, **keep}
     if "multi_node" in out:
         mn = out["multi_node"]
@@ -280,8 +290,7 @@ def mode_reparse(outpath: Path):
             for tag, tdata in mn["transports"].items():
                 if "raw" in tdata:
                     raw = tdata["raw"]
-                    keep = {k: tdata[k] for k in tdata
-                            if k in ("transport_tag", "source_file")}
+                    keep = {k: tdata[k] for k in tdata if k in ("transport_tag", "source_file")}
                     mn["transports"][tag] = {**parse_experiments(raw), "raw": raw, **keep}
             # Refresh the promoted top-level primary transport view
             primary = mn.get("primary_transport") or next(iter(mn["transports"]))
@@ -291,9 +300,19 @@ def mode_reparse(outpath: Path):
             mn["raw"] = mn["transports"][primary].get("raw", mn.get("raw", ""))
         elif "raw" in mn:
             raw = mn["raw"]
-            keep = {k: mn[k] for k in mn
-                    if k in ("elapsed_s", "kernel", "num_nodes",
-                             "gpus_per_node", "world_size", "primary_transport")}
+            keep = {
+                k: mn[k]
+                for k in mn
+                if k
+                in (
+                    "elapsed_s",
+                    "kernel",
+                    "num_nodes",
+                    "gpus_per_node",
+                    "world_size",
+                    "primary_transport",
+                )
+            }
             out["multi_node"] = {**parse_experiments(raw), "raw": raw, **keep}
     outpath.write_text(json.dumps(out, indent=2, ensure_ascii=False))
     print(f"Re-parsed and written to {outpath}")
@@ -307,8 +326,7 @@ def _extract_world_size(text: str) -> int | None:
 def _extract_nodes_ppn(text: str) -> tuple[int | None, int | None]:
     nodes = re.search(r"Nodes:\s*(\d+)", text)
     ppn = re.search(r"GPUs per node:\s*(\d+)", text)
-    return (int(nodes.group(1)) if nodes else None,
-            int(ppn.group(1)) if ppn else None)
+    return (int(nodes.group(1)) if nodes else None, int(ppn.group(1)) if ppn else None)
 
 
 def _extract_transport_tag(text: str) -> str | None:
@@ -344,9 +362,12 @@ def _build_multi_node_section(paths: list[str]) -> dict | None:
         raw = p.read_text()
         parsed = parse_experiments(raw)
         tag = tag or _extract_transport_tag(raw) or "default"
-        transports[tag] = {**parsed, "raw": raw,
-                           "transport_tag": _extract_transport_tag(raw),
-                           "source_file": str(p)}
+        transports[tag] = {
+            **parsed,
+            "raw": raw,
+            "transport_tag": _extract_transport_tag(raw),
+            "source_file": str(p),
+        }
 
     # Metadata comes from the first available file
     raw0 = entries[0][1].read_text()
@@ -376,8 +397,9 @@ def _build_multi_node_section(paths: list[str]) -> dict | None:
     return section
 
 
-def mode_merge(single_gpu: Path | None, single_node: Path | None,
-               multi_node: list[str], outpath: Path):
+def mode_merge(
+    single_gpu: Path | None, single_node: Path | None, multi_node: list[str], outpath: Path
+):
     """Merge pre-collected text files into JSON.  Missing files are skipped;
     existing sections in outpath are preserved if the corresponding text
     file is not provided.  multi_node accepts multiple transport variants."""
@@ -405,10 +427,12 @@ def mode_merge(single_gpu: Path | None, single_node: Path | None,
         out["multi_node"] = mn
 
     out.setdefault("metadata", {})
-    out["metadata"].update({
-        "gpu": _nvidia_smi_first_gpu(),
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-    })
+    out["metadata"].update(
+        {
+            "gpu": _nvidia_smi_first_gpu(),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+    )
 
     outpath.parent.mkdir(exist_ok=True)
     outpath.write_text(json.dumps(out, indent=2, ensure_ascii=False))
@@ -426,18 +450,34 @@ def mode_merge(single_gpu: Path | None, single_node: Path | None,
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--reparse", action="store_true", help="reparse raw fields in existing JSON")
     p.add_argument("--merge", action="store_true", help="merge text files into JSON")
     p.add_argument("--single-gpu", type=Path, help="single-GPU text output")
     p.add_argument("--single-node", type=Path, help="single-node multi-GPU text output")
-    p.add_argument("--multi-node", action="append", default=[],
-                   help="multi-node text output; repeat as 'tag=path' or plain "
-                        "'path' (tag inferred from multi_node_NNgpu_<tag>.txt)")
-    p.add_argument("--out", type=Path, default=RESULTS / "benchmark_results.json",
-                   help="JSON output path (default: results/benchmark_results.json)")
-    p.add_argument("num_gpus", nargs="?", type=int, default=8,
-                   help="max GPUs for legacy run-and-collect mode (default 8)")
+    p.add_argument(
+        "--multi-node",
+        action="append",
+        default=[],
+        help="multi-node text output; repeat as 'tag=path' or plain "
+        "'path' (tag inferred from multi_node_NNgpu_<tag>.txt)",
+    )
+    p.add_argument(
+        "--out",
+        type=Path,
+        default=RESULTS / "benchmark_results.json",
+        help="JSON output path (default: results/benchmark_results.json)",
+    )
+    p.add_argument(
+        "num_gpus",
+        nargs="?",
+        type=int,
+        default=8,
+        help="max GPUs for legacy run-and-collect mode (default 8)",
+    )
     args = p.parse_args()
 
     if args.reparse:

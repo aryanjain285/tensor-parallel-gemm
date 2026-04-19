@@ -160,11 +160,7 @@ def parse_multi_gpu(filename):
             if line.startswith("===== Exp 6"):
                 current = "exp6"
                 continue
-            if (
-                not current
-                or not line
-                or line.startswith(("---", "M ", "Kernel", "Size"))
-            ):
+            if not current or not line or line.startswith(("---", "M ", "Kernel", "Size")):
                 continue
             if line.startswith("Done"):
                 break

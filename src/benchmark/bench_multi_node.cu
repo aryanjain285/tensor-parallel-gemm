@@ -112,7 +112,10 @@ static void tcp_broadcast_nccl_id(ncclUniqueId& id, const NodeEnv& env) {
         NCCL_CHECK(ncclGetUniqueId(&id));
 
         int srv = socket(AF_INET, SOCK_STREAM, 0);
-        if (srv < 0) { perror("socket"); exit(EXIT_FAILURE); }
+        if (srv < 0) {
+            perror("socket");
+            exit(EXIT_FAILURE);
+        }
         int yes = 1;
         setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 
@@ -137,7 +140,10 @@ static void tcp_broadcast_nccl_id(ncclUniqueId& id, const NodeEnv& env) {
             sockaddr_in ca{};
             socklen_t clen = sizeof(ca);
             int c = accept(srv, reinterpret_cast<sockaddr*>(&ca), &clen);
-            if (c < 0) { perror("accept"); exit(EXIT_FAILURE); }
+            if (c < 0) {
+                perror("accept");
+                exit(EXIT_FAILURE);
+            }
             char ip[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &ca.sin_addr, ip, sizeof(ip));
             printf("[node 0] peer %d connected from %s\n", i, ip);
@@ -400,8 +406,8 @@ int main(int argc, char** argv) {
         printf("Transport tag:      %s\n", env_or("TRANSPORT_TAG", "default"));
         // Echo the NCCL env vars that actually select a transport -- helpful when
         // cross-checking which backend NCCL picked.
-        const char* kNcclVars[] = {"NCCL_NET",         "NCCL_IB_DISABLE", "NCCL_P2P_DISABLE",
-                                   "NCCL_SOCKET_IFNAME", "NCCL_ALGO",     "NCCL_PROTO",
+        const char* kNcclVars[] = {"NCCL_NET",           "NCCL_IB_DISABLE", "NCCL_P2P_DISABLE",
+                                   "NCCL_SOCKET_IFNAME", "NCCL_ALGO",       "NCCL_PROTO",
                                    "NCCL_NET_GDR_LEVEL", "NCCL_IB_HCA"};
         for (const char* k : kNcclVars) {
             const char* v = getenv(k);
@@ -445,8 +451,8 @@ int main(int argc, char** argv) {
     //   weak_sizes -- per-GPU tile sizes for the weak-scaling sweep.  All
     //                 fit easily because only W, Y are full while X, Y_full
     //                 are per-tile.
-    const std::vector<int> col_sizes  = {2048, 4096, 8192, 16384, 32768, 49152, 65536};
-    const std::vector<int> mlp_sizes  = {2048, 4096, 8192, 16384, 32768};
+    const std::vector<int> col_sizes = {2048, 4096, 8192, 16384, 32768, 49152, 65536};
+    const std::vector<int> mlp_sizes = {2048, 4096, 8192, 16384, 32768};
     const std::vector<int> ovlp_sizes = {2048, 4096, 8192, 16384, 32768, 49152};
     const std::vector<int> weak_sizes = {2048, 4096, 8192};
     constexpr int kWarmup = 5;
@@ -457,11 +463,11 @@ int main(int argc, char** argv) {
     // =====================================================================
     if (is_master) {
         printf("===== Exp 1: Strong Scaling — Column Parallel Forward =====\n");
-        printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s %10s  %8s\n", "M", "N", "K",
-               "GPUs", "GEMM(ms)", "GEMM_std", "Comm(ms)", "Comm_std", "Total(ms)", "Total_std",
-               "GFLOPS");
-        printf("--------------------------------------------------------------------------"
-               "-----------------------\n");
+        printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s %10s  %8s\n", "M", "N", "K", "GPUs",
+               "GEMM(ms)", "GEMM_std", "Comm(ms)", "Comm_std", "Total(ms)", "Total_std", "GFLOPS");
+        printf(
+            "--------------------------------------------------------------------------"
+            "-----------------------\n");
         fflush(stdout);
     }
 
@@ -501,8 +507,8 @@ int main(int argc, char** argv) {
 
         if (is_master) {
             printf("%-6d %-6d %-6d %-6d  %10.3f %10.3f  %10.3f %10.3f  %10.3f %10.3f  %8.1f\n", M,
-                   N, K, env.world_size, gemm.mean, gemm.stddev, comm.mean, comm.stddev,
-                   total.mean, total.stddev, gemm_gflops(M, N, K, total.mean));
+                   N, K, env.world_size, gemm.mean, gemm.stddev, comm.mean, comm.stddev, total.mean,
+                   total.stddev, gemm_gflops(M, N, K, total.mean));
             fflush(stdout);
         }
     }
@@ -515,8 +521,9 @@ int main(int argc, char** argv) {
         printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s %10s  %8s\n", "M", "N_tot", "K",
                "GPUs", "GEMM(ms)", "GEMM_std", "Comm(ms)", "Comm_std", "Total(ms)", "Total_std",
                "GFLOPS");
-        printf("--------------------------------------------------------------------------"
-               "-----------------------\n");
+        printf(
+            "--------------------------------------------------------------------------"
+            "-----------------------\n");
         fflush(stdout);
     }
     for (int per_gpu : weak_sizes) {
@@ -657,8 +664,9 @@ int main(int argc, char** argv) {
         printf("\n===== Exp 5: Parallel MLP Forward + Backward (%d GPUs) =====\n", env.world_size);
         printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s\n", "M", "H", "N", "GPUs",
                "Fwd(ms)", "Fwd_std", "Bwd(ms)", "Bwd_std", "Total(ms)");
-        printf("------------------------------------------------------------------------"
-               "-----\n");
+        printf(
+            "------------------------------------------------------------------------"
+            "-----\n");
         fflush(stdout);
     }
 
@@ -687,16 +695,14 @@ int main(int argc, char** argv) {
             parallel_mlp_backward(bufs[g].X.get(), bufs[g].W1.get(), bufs[g].W2.get(),
                                   bufs[g].Hidden.get(), bufs[g].dY.get(), bufs[g].dW1.get(),
                                   bufs[g].dW2.get(), bufs[g].dHidden.get(), bufs[g].dXPartial.get(),
-                                  bufs[g].dX.get(), M, K, H, N, env.world_size,
-                                  ctxs[g]->world_rank, ctxs[g]->handle, ctxs[g]->comm,
-                                  ctxs[g]->compute_stream, kernel);
+                                  bufs[g].dX.get(), M, K, H, N, env.world_size, ctxs[g]->world_rank,
+                                  ctxs[g]->handle, ctxs[g]->comm, ctxs[g]->compute_stream, kernel);
             ctxs[g]->compute_stream.synchronize();
         });
 
         if (is_master) {
             printf("%-6d %-6d %-6d %-6d  %10.3f %10.3f  %10.3f %10.3f  %10.3f\n", M, H, N,
-                   env.world_size, fwd.mean, fwd.stddev, bwd.mean, bwd.stddev,
-                   fwd.mean + bwd.mean);
+                   env.world_size, fwd.mean, fwd.stddev, bwd.mean, bwd.stddev, fwd.mean + bwd.mean);
             fflush(stdout);
         }
     }
@@ -711,8 +717,9 @@ int main(int argc, char** argv) {
         printf("\n===== Exp 5b: GPT-style MLP (H = 4*K, %d GPUs) =====\n", env.world_size);
         printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s\n", "M", "K", "H", "N", "Fwd(ms)",
                "Fwd_std", "Bwd(ms)", "Bwd_std", "Total(ms)");
-        printf("------------------------------------------------------------------------"
-               "-----\n");
+        printf(
+            "------------------------------------------------------------------------"
+            "-----\n");
         fflush(stdout);
     }
 
@@ -724,7 +731,7 @@ int main(int argc, char** argv) {
         int K;
     };
     const std::vector<MLPShape> mlp_shapes = {
-        { 8192, 2048},   // GPT-2 style
+        {8192, 2048},    // GPT-2 style
         {16384, 4096},   // mid-size
         {32768, 8192},   // Llama-7B-ish (per-layer)
         {32768, 12288},  // GPT-3 175B hidden=12288
@@ -757,9 +764,8 @@ int main(int argc, char** argv) {
             parallel_mlp_backward(bufs[g].X.get(), bufs[g].W1.get(), bufs[g].W2.get(),
                                   bufs[g].Hidden.get(), bufs[g].dY.get(), bufs[g].dW1.get(),
                                   bufs[g].dW2.get(), bufs[g].dHidden.get(), bufs[g].dXPartial.get(),
-                                  bufs[g].dX.get(), M, K, H, N, env.world_size,
-                                  ctxs[g]->world_rank, ctxs[g]->handle, ctxs[g]->comm,
-                                  ctxs[g]->compute_stream, kernel);
+                                  bufs[g].dX.get(), M, K, H, N, env.world_size, ctxs[g]->world_rank,
+                                  ctxs[g]->handle, ctxs[g]->comm, ctxs[g]->compute_stream, kernel);
             ctxs[g]->compute_stream.synchronize();
         });
 
@@ -778,8 +784,9 @@ int main(int argc, char** argv) {
                env.world_size);
         printf("%-6s  %-8s  %10s %10s  %10s %10s  %8s\n", "Size", "Chunks", "NoOvlp(ms)",
                "NoOvlp_std", "Overlap(ms)", "Overlap_std", "Speedup");
-        printf("------------------------------------------------------------------------"
-               "---\n");
+        printf(
+            "------------------------------------------------------------------------"
+            "---\n");
         fflush(stdout);
     }
 

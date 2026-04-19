@@ -104,8 +104,16 @@ def plot_kernel_gflops(data):
     x = np.arange(len(sizes))
     n = len(kernels)
     w = 0.82 / n
-    bar_colors = [PAL["blue"], PAL["teal"], PAL["green"], PAL["amber"],
-                  PAL["orange"], PAL["red"], PAL["purple"], PAL["gray"]]
+    bar_colors = [
+        PAL["blue"],
+        PAL["teal"],
+        PAL["green"],
+        PAL["amber"],
+        PAL["orange"],
+        PAL["red"],
+        PAL["purple"],
+        PAL["gray"],
+    ]
 
     for i, k in enumerate(kernels):
         vals = [perf[k][s] for s in sizes]
@@ -140,8 +148,15 @@ def plot_cublas_pct(data):
     kernels = [k for k in KERNELS_MAIN if k != "cuBLAS"]
 
     fig, ax = plt.subplots(figsize=(5.5, 3.8))
-    line_colors = [PAL["blue"], PAL["teal"], PAL["green"], PAL["amber"],
-                   PAL["orange"], PAL["red"], PAL["purple"]]
+    line_colors = [
+        PAL["blue"],
+        PAL["teal"],
+        PAL["green"],
+        PAL["amber"],
+        PAL["orange"],
+        PAL["red"],
+        PAL["purple"],
+    ]
     for i, k in enumerate(kernels):
         vals = np.array([perf[k][s] for s in sizes])
         pct = vals / cublas * 100
@@ -196,8 +211,16 @@ def plot_roofline(data):
 
     kernels = KERNELS_MAIN
     markers = ["v", "^", "s", "D", "p", "h", "*", "o"]
-    roof_colors = [PAL["blue"], PAL["teal"], PAL["green"], PAL["amber"],
-                   PAL["orange"], PAL["red"], PAL["purple"], PAL["gray"]]
+    roof_colors = [
+        PAL["blue"],
+        PAL["teal"],
+        PAL["green"],
+        PAL["amber"],
+        PAL["orange"],
+        PAL["red"],
+        PAL["purple"],
+        PAL["gray"],
+    ]
 
     for i, k in enumerate(kernels):
         gf = perf[k][size]
@@ -298,7 +321,12 @@ def plot_weak_scaling(data):
     ax2.plot(gpus, [r["GFLOPS"] for r in rows], "s-", lw=2, markersize=6, color=PAL["orange"])
     ideal_gf = rows[0]["GFLOPS"]
     ax2.plot(
-        gpus, [ideal_gf * g for g in gpus], ":", color=PAL["red"], alpha=0.4, lw=1,
+        gpus,
+        [ideal_gf * g for g in gpus],
+        ":",
+        color=PAL["red"],
+        alpha=0.4,
+        lw=1,
         label="Ideal linear",
     )
     ax2.set_xlabel("Number of GPUs")
@@ -328,8 +356,13 @@ def plot_comm_compute_size(data):
 
     ax.bar(x - w / 2, gemm, w, label="GEMM", color=PAL["blue"], edgecolor="white", linewidth=0.4)
     ax.bar(
-        x + w / 2, comm, w, label="Communication",
-        color=PAL["orange"], edgecolor="white", linewidth=0.4,
+        x + w / 2,
+        comm,
+        w,
+        label="Communication",
+        color=PAL["orange"],
+        edgecolor="white",
+        linewidth=0.4,
     )
     for i, r in enumerate(rows):
         ax.text(
@@ -369,8 +402,14 @@ def plot_comm_compute_kernel(data):
     y = np.arange(len(kernels))
     ax1.barh(y, gemm, 0.6, label="GEMM", color=PAL["blue"], edgecolor="white", linewidth=0.4)
     ax1.barh(
-        y, comm, 0.6, left=gemm, label="Communication",
-        color=PAL["orange"], edgecolor="white", linewidth=0.4,
+        y,
+        comm,
+        0.6,
+        left=gemm,
+        label="Communication",
+        color=PAL["orange"],
+        edgecolor="white",
+        linewidth=0.4,
     )
     ax1.set_yticks(y)
     ax1.set_yticklabels(labels)
@@ -411,8 +450,14 @@ def plot_mlp(data):
 
     ax.bar(x, fwd, 0.5, label="Forward", color=PAL["blue"], edgecolor="white", linewidth=0.4)
     ax.bar(
-        x, bwd, 0.5, bottom=fwd, label="Backward",
-        color=PAL["red"], edgecolor="white", linewidth=0.4,
+        x,
+        bwd,
+        0.5,
+        bottom=fwd,
+        label="Backward",
+        color=PAL["red"],
+        edgecolor="white",
+        linewidth=0.4,
     )
     for i, r in enumerate(rows):
         ratio = r["Bwd"] / r["Fwd"]
@@ -450,12 +495,22 @@ def plot_overlap(data):
     w = 0.3
 
     ax.bar(
-        x - w / 2, no_ovlp, w, label="No Overlap",
-        color=PAL["blue"], edgecolor="white", linewidth=0.4,
+        x - w / 2,
+        no_ovlp,
+        w,
+        label="No Overlap",
+        color=PAL["blue"],
+        edgecolor="white",
+        linewidth=0.4,
     )
     ax.bar(
-        x + w / 2, ovlp, w, label="Overlap (4 chunks)",
-        color=PAL["green"], edgecolor="white", linewidth=0.4,
+        x + w / 2,
+        ovlp,
+        w,
+        label="Overlap (4 chunks)",
+        color=PAL["green"],
+        edgecolor="white",
+        linewidth=0.4,
     )
     for i, r in enumerate(rows):
         ax.text(

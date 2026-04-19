@@ -40,9 +40,9 @@ DESCRIPTIONS = {
 
 # Regex to match old block comment at file start
 OLD_HEADER = re.compile(
-    r"^/\*\n"         # /*
+    r"^/\*\n"  # /*
     r"(?:\s*\*.*\n)*"  # * lines
-    r"\s*\*/\n*",      # */
+    r"\s*\*/\n*",  # */
 )
 
 ROOT = Path(__file__).resolve().parent.parent / "src"
