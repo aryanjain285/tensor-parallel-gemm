@@ -103,9 +103,10 @@
   )[
     #text(weight: "bold")[Abstract.]
     General Matrix Multiplication (GEMM) is the computational backbone of modern deep learning.
-    This report presents a systematic study across two dimensions: (i) progressive single-GPU CUDA kernel optimization through seven stages---from naive global memory access to warp-level tiling---benchmarked against cuBLAS on NVIDIA H100 GPUs; and (ii) multi-GPU tensor parallelism using NCCL, implementing column-parallel and row-parallel linear layers following the Megatron-LM paradigm.
-    Our best custom kernel achieves 63% of cuBLAS throughput at 32.8 TFLOPS.
-    Scaling experiments on 8$times$H100 GPUs with matrices up to $32768 times 32768$ demonstrate $7.6 times$ strong-scaling speedup and 400 TFLOPS aggregate throughput. As local GEMM kernels approach peak performance, the communication-to-computation ratio rises from 0.20 (naive kernel) to 0.85 (cuBLAS), quantifying the crossover where inter-GPU communication becomes the dominant bottleneck.
+    This report presents a systematic study across three scales: (i) progressive single-GPU CUDA kernel optimization through seven stages---from naive global memory access to warp-level tiling---benchmarked against cuBLAS on NVIDIA H100 GPUs; (ii) intra-node tensor parallelism on 8$times$H100 connected via NVLink; and (iii) cross-node tensor parallelism on 16$times$H100 spanning two nodes over 400 Gb/s InfiniBand.
+    Our best custom kernel reaches 32.8 TFLOPS, 63% of cuBLAS throughput.
+    Strong scaling on 8$times$H100 for $N = 16384$ yields a $7.03times$ speedup (88% efficiency) at 360 TFLOPS aggregate; scaling to 16 GPUs across the IB fabric pushes the $N=32768$ workload to 667 TFLOPS aggregate.
+    As local GEMM kernels approach peak efficiency, the communication-to-computation ratio rises from 0.22 (naive) to 0.88 (cuBLAS), quantifying the crossover at which inter-GPU communication becomes the dominant bottleneck. A transport sweep confirms that NCCL's IB path is $~125times$ faster than the TCP fallback at the largest matrix size.
   ]
 ]
 
@@ -115,120 +116,42 @@
 
 GEMM operations underpin virtually all compute-intensive workloads in deep learning @vaswani2017attention @jia2018dissecting. In Transformer architectures, multi-head attention and feed-forward layers are fundamentally matrix multiplications. As models scale beyond the memory capacity of a single accelerator, _tensor parallelism_ @shoeybi2019megatron has become indispensable, distributing weight matrices across GPUs at the cost of inter-GPU communication.
 
-While vendor-tuned libraries such as cuBLAS @nvidia_cublas_2026 deliver near-optimal single-GPU performance, they abstract away the complex interaction between hardware-level compute intensity and system-level communication latency. This project bridges that gap by:
-+ Implementing seven progressively optimized CUDA GEMM kernels to understand hardware-level constraints (memory coalescing, shared memory tiling, register blocking, warp scheduling).
-+ Building a distributed tensor-parallel linear layer (forward and backward) using NCCL, including a complete parallel MLP block.
-+ Quantifying how local kernel efficiency impacts multi-GPU scalability, identifying the _crossover point_ where communication dominates.
+While vendor-tuned libraries such as cuBLAS @nvidia_cublas_2026 deliver near-optimal single-GPU performance, they abstract away the complex interaction between hardware-level compute intensity and system-level communication latency @nvidia_nccl_2026. This project bridges that gap by:
++ Implementing seven progressively optimized CUDA GEMM kernels (plus one deliberately uncoalesced negative control) to understand hardware-level constraints (memory coalescing, shared memory tiling, register blocking, warp scheduling).
++ Building a distributed tensor-parallel linear layer (forward and backward) using NCCL, including a complete parallel MLP block and a communication--computation overlap variant.
++ Quantifying how local kernel efficiency impacts multi-GPU scalability, identifying the _crossover point_ where communication dominates, and extending the study across the node boundary to measure how that crossover shifts when NVLink gives way to InfiniBand.
 
 All experiments are conducted on the hardware described in @sec:setup.
 
 == Experimental Setup <sec:setup>
 
-All experiments run on a single node with 8 NVIDIA H100 80GB SXM5 GPUs interconnected via NVLink 4.0 (NV18 topology, 900 GB/s bidirectional per GPU), using CUDA 13.1 and NCCL 2.29.3. The full hardware and software configuration is detailed in @tab:setup (Appendix).
-
-// ═════════════════════════════════════════════════════════════════════
-= Background
-// ═════════════════════════════════════════════════════════════════════
-
-== GPU Memory Hierarchy
-
-The performance of GEMM kernels is governed by the GPU's memory hierarchy. @tab:memhier summarizes the key levels for the H100.
+Single-node experiments run on one node with 8 NVIDIA H100 80 GB SXM5 GPUs interconnected via NVLink 4.0 (NV18 topology, 900 GB/s bidirectional per GPU). Multi-node experiments span two such nodes (16 GPUs total) connected by 4$times$Mellanox ConnectX-7 400 Gb/s InfiniBand HCAs per node with GPUDirect RDMA. Both configurations use CUDA 13.1 and NCCL 2.29.3. The full hardware and software configuration is summarised in @tab:setup.
 
 #figure(
   table(
-    columns: (auto, auto, auto, auto, auto),
+    columns: (auto, auto),
     inset: 6pt,
-    align: (left, right, right, right, left),
+    align: (left, left),
     stroke: none,
     table.hline(),
-    table.header(
-      [*Level*], [*Size*], [*Bandwidth*], [*Latency*], [*Scope*],
-    ),
+    table.header([*Component*], [*Specification*]),
     table.hline(stroke: 0.5pt),
-    [Registers], [256 KB/SM], [$tilde 20$ TB/s], [$0$ cycles], [Per-thread],
-    [Shared Memory], [228 KB/SM], [$tilde 19$ TB/s], [$tilde 20$ ns], [Per-block],
-    [L2 Cache], [50 MB], [$tilde 5$ TB/s], [$tilde 200$ ns], [Global],
-    [HBM3 (Global)], [80 GB], [$tilde 3.35$ TB/s], [$tilde 400$ ns], [Global],
+    [GPU (per node)], [8 $times$ NVIDIA H100 80 GB HBM3 (SXM5)],
+    [Intra-node interconnect], [NVLink 4.0, all-to-all NV18 (900 GB/s bidirectional per GPU)],
+    [Inter-node interconnect], [4 $times$ Mellanox ConnectX-7 400 Gb/s InfiniBand per node, GPUDirect RDMA],
+    [GPU Compute], [132 SMs, 1980 MHz boost, sm\_90, 67 TFLOPS FP32 dense peak (FMA-counted)],
+    [GPU Memory], [80 GB HBM3, $tilde$3.35 TB/s bandwidth per GPU],
+    [CPU (per node)], [2 $times$ Intel Xeon Gold 6448Y (32 cores / 64 threads each, 128 threads total)],
+    [System Memory (per node)], [2 TB DDR5],
+    [OS], [Ubuntu 24.04.4 LTS (kernel 5.14.0)],
+    [CUDA Toolkit], [13.1],
+    [NCCL], [2.29.3],
+    [GPU Driver], [550.90.07],
+    [Max world size measured], [16 GPUs (2 nodes $times$ 8 GPUs)],
     table.hline(),
   ),
-  caption: [H100 GPU memory hierarchy. Each optimization moves data access to a faster level.],
-) <tab:memhier>
-
-Every kernel optimization in this work moves the _effective_ data access pattern from a slower to a faster level, or reduces total memory transactions.
-
-== Roofline Model
-
-The _roofline model_ @williams2009roofline characterizes achievable performance as a function of _operational intensity_ (OI, FLOP/byte):
-
-$ P_"max" = min(pi, beta times "OI") $
-
-where $pi$ is peak compute throughput (33.5 TFLOPS FP32 for H100) and $beta$ is peak memory bandwidth (3.35 TB/s). The _ridge point_ at $"OI" = pi / beta approx 10$ FLOP/byte separates memory-bound (left) from compute-bound (right) regimes. For GEMM of size $N$, the theoretical OI is $2N^3 slash (12N^2) = N slash 6$, which exceeds the ridge point for $N >= 60$---in practice, only optimized kernels achieve this.
-
-== Tensor Parallelism
-
-Tensor parallelism @shoeybi2019megatron distributes the weight matrices of a linear layer $Y = X W$ across $p$ GPUs. Two complementary partitioning strategies exist.
-
-=== Column Parallelism
-
-The weight matrix $W in RR^(K times N)$ is partitioned column-wise into $p$ shards:
-$ W = [W_1 | W_2 | dots.c | W_p], quad W_i in RR^(K times N\/p) $
-The input $X in RR^(M times K)$ is replicated on all GPUs. Each GPU $i$ computes a local GEMM:
-$ Y_i = X W_i in RR^(M times N\/p) $
-The full output is assembled via an `AllGather` collective:
-$ Y = [Y_1 | Y_2 | dots.c | Y_p] = X W in RR^(M times N) $
-
-*Backward pass.* Given upstream gradient $dif Y = [dif Y_1 | dots.c | dif Y_p]$, each GPU $i$ computes:
-$ dif W_i = X^top dif Y_i in RR^(K times N\/p) quad "(local, no communication)" $
-$ dif X_i = dif Y_i W_i^top in RR^(M times K) quad "(partial input gradient)" $
-Since each GPU sees only its column shard, $dif X_i$ captures only the contribution from $W_i$. The full input gradient requires an `AllReduce` (sum):
-$ dif X = sum_(i=1)^p dif X_i = dif Y W^top $
-
-=== Row Parallelism
-
-The weight matrix is partitioned row-wise:
-$ W = mat(W_1; W_2; dots.v; W_p), quad W_i in RR^(K\/p times N) $
-The input $X in RR^(M times K)$ is correspondingly split column-wise: $X = [X_1 | X_2 | dots.c | X_p]$ with $X_i in RR^(M times K\/p)$. Each GPU $i$ computes:
-$ Y_i = X_i W_i in RR^(M times N) quad "(partial sum)" $
-The full output is obtained by an `AllReduce`:
-$ Y = sum_(i=1)^p Y_i = sum_(i=1)^p X_i W_i = X W $
-
-*Backward pass.* Given upstream gradient $dif Y in RR^(M times N)$ (replicated after the forward `AllReduce`):
-$ dif W_i = X_i^top dif Y in RR^(K\/p times N) quad "(local)" $
-$ dif X_i = dif Y W_i^top in RR^(M times K\/p) quad "(local)" $
-No communication is needed in the backward pass---$dif X_i$ is precisely the gradient for the local input shard.
-
-=== Composing a Parallel MLP Block
-
-A standard Transformer MLP block computes $"MLP"(X) = sigma(X W_1) W_2$, where $sigma$ is an activation function. Following Megatron-LM, we compose column-parallel (first layer) with row-parallel (second layer):
-
-#figure(
-  table(
-    columns: (auto, auto, auto, auto),
-    inset: 6pt,
-    align: (left, left, left, left),
-    stroke: none,
-    table.hline(),
-    table.header([*Step*], [*Operation*], [*Per-GPU Compute*], [*Communication*]),
-    table.hline(stroke: 0.5pt),
-    [Fwd Layer 1], [Column parallel], [$H_i = X W_(1,i)$, #h(0.3em) $H_i in RR^(M times H\/p)$], [None],
-    [Fwd Activation], [Element-wise], [$H_i <- sigma(H_i)$], [None],
-    [Fwd Layer 2], [Row parallel], [$Y_i = H_i W_(2,i)$, #h(0.3em) $Y_i in RR^(M times N)$], [`AllReduce`($Y$)],
-    [Bwd Layer 2], [Row backward], [$dif W_(2,i), dif H_i$ (local)], [None],
-    [Bwd Layer 1], [Column backward], [$dif W_(1,i)$ (local), $dif X_i$ (partial)], [`AllReduce`($dif X$)],
-    table.hline(),
-  ),
-  caption: [Communication pattern in a parallel MLP block. Only two `AllReduce` operations are needed: one in the forward pass and one in the backward pass.],
-) <tab:mlp_comm>
-
-The key insight (@tab:mlp_comm) is that column-parallel's output $H_i$ is _already_ the correct input shard for the subsequent row-parallel layer---no `AllGather` is needed between layers. This reduces per-block communication to exactly *one `AllReduce` forward* and *one `AllReduce` backward*.
-
-=== Communication Cost Model
-
-For a ring-based `AllReduce` with $p$ GPUs, message size $S$ bytes, per-hop bandwidth $B$, and latency $L$:
-$ T_"AllReduce" approx 2(p-1)/p dot S/B + 2(p-1) dot L $
-The first term (bandwidth) dominates for large messages. For column-parallel `AllGather`:
-$ T_"AllGather" approx (p-1)/p dot S/B + (p-1) dot L $
-As $p arrow infinity$, both approach $S\/B$ (bandwidth-limited). This means communication time depends primarily on _data volume_ ($S = M N dot 4$ bytes for FP32) and interconnect bandwidth, not on the local GEMM kernel speed---a fact we verify experimentally in @sec:ratio.
+  caption: [Hardware and software configuration. Single-node runs use one node with 8 GPUs over NVLink; multi-node runs span two nodes over 400 Gb/s InfiniBand.],
+) <tab:setup>
 
 // ═════════════════════════════════════════════════════════════════════
 = System Design
@@ -406,136 +329,182 @@ All kernels pass correctness verification against a CPU reference at $M = N = K 
 
 #fig(
   "../results/figures/kernel_gflops.pdf",
-  [GFLOPS comparison across all kernel optimization stages and matrix sizes. cuBLAS serves as the reference. Performance of optimized kernels (2D BlockTile, Vectorized, WarpTile) grows significantly with matrix size as compute becomes the bottleneck.],
+  [GFLOPS across all kernel optimization stages and matrix sizes (the Uncoalesced negative control is omitted; see discussion). Register-blocked kernels (2D BlockTile, Vectorized, WarpTile) climb sharply with size as the working set outgrows the overhead of thread setup; cuBLAS sits on a separate tier courtesy of its tensor-core path.],
   scope: "parent",
   width: 80%,
 ) <fig:gflops>
 
 @fig:gflops shows the performance progression. Key observations:
 
-- *Naive and Coalesced kernels* plateau at $tilde 6{,}300$ GFLOPS regardless of matrix size, confirming they are memory-bandwidth-bound. The coalesced variant shows a $12.7 times$ speedup over the deliberately uncoalesced version (498 vs. 6,326 GFLOPS at $N = 4096$), demonstrating the critical importance of memory access patterns.
+- *Naive and Coalesced kernels* plateau at $tilde 6{,}300$ GFLOPS regardless of matrix size, confirming they are memory-bandwidth-bound. The coalesced variant is $12.7 times$ faster than the deliberately uncoalesced control (6,338 vs. 498 GFLOPS at $N = 4096$), a vivid demonstration that uncoalesced global-memory accesses alone can squander more than an order of magnitude of throughput.
 
-- *Shared memory tiling* (Kernel 3) improves throughput to $tilde 9{,}000$ GFLOPS by reducing global memory traffic by $32 times$, but remains below the compute-bound regime.
+- *Shared memory tiling* (Kernel 3) raises throughput to $tilde 9{,}000$ GFLOPS by reducing global traffic by $32 times$, but remains below the compute-bound regime.
 
-- *Register blocking* (Kernels 4--7) produces the most dramatic gains. The 2D block tile reaches 22,044 GFLOPS at $N = 4096$---a $3.5 times$ improvement over shared memory alone. Vectorized loads push this to 32,612 GFLOPS at $N = 4096$, sustaining $tilde 32{,}000$ GFLOPS through $N = 16384$.
+- *Register blocking* (Kernels 4--7) produces the most dramatic gains. The 2D block tile reaches 22,062 GFLOPS at $N = 4096$---a $2.4 times$ improvement over shared memory alone. Vectorized `float4` loads push this to 32,492 GFLOPS at $N = 4096$, and the warp-tiled variant sustains 32,820 GFLOPS at $N = 16384$.
 
-- *cuBLAS* achieves 53,304 GFLOPS at $N = 16384$ ($tilde 162%$ of our best), leveraging Tensor Core paths and auto-tuning unavailable to our FP32-only kernels.
+- *cuBLAS* peaks at 51,662 GFLOPS at $N = 8192$ and sustains $tilde 51$ TFLOPS thereafter, about 77% of the 67 TFLOPS FP32 ceiling. It outperforms our best hand-written kernel by $1.59 times$; the gap is attributable to tensor-core paths (TF32 with FP32 accumulation) and extensive offline autotuning that an FP32-only implementation cannot replicate.
 
 #fig(
   "../results/figures/cublas_percentage.pdf",
-  [Each kernel's throughput as a percentage of cuBLAS. The Vectorized kernel reaches 63% of cuBLAS at $N = 4096$. The gap narrows significantly from Kernel 1 (12%) to Kernel 6 (63%).],
+  [Each kernel's throughput as a percentage of cuBLAS. The Vectorized kernel reaches 63% of cuBLAS at $N = 4096$; at very small sizes ($N = 256$) the Shared-Memory kernel briefly matches cuBLAS because cuBLAS's dispatch overhead dominates its measured time.],
 ) <fig:pct>
 
-@fig:pct shows the relative performance trajectory. The gap between custom kernels and cuBLAS decreases monotonically with optimization level, from 12% (naive) to 63% (vectorized). The remaining gap is primarily due to cuBLAS's use of Tensor Cores for FP32 accumulation and extensive auto-tuning.
+@fig:pct shows the relative trajectory. For $N >= 2048$, the gap to cuBLAS narrows monotonically with optimization level---11% (naive) $arrow.r$ 18% (shared memory) $arrow.r$ 43% (2D block) $arrow.r$ 63% (vectorized/warp). The crossover behaviour below $N = 1024$ reflects small-size launch and library-dispatch overheads rather than steady-state throughput.
 
 #fig(
   "../results/figures/roofline.pdf",
-  [Roofline analysis at $N = 4096$. Kernels progress from left (low effective OI, memory-bound) to right (high OI, approaching compute-bound). The ridge point at 10 FLOP/byte separates the two regimes. cuBLAS crosses into the compute-bound region.],
+  [Roofline analysis at $N = 4096$. The FP32 ceiling is 67 TFLOPS (FMA-counted) and the ridge point is at 20 FLOP/byte; SGEMM at $N = 4096$ has an operational intensity of 683 FLOP/byte, deeply in the compute-bound regime. All kernels are plotted at that OI with slight horizontal jitter; vertical position therefore measures their achieved fraction of peak compute.],
 ) <fig:roofline>
 
-The roofline analysis (@fig:roofline) provides a unified view. Naive/Coalesced kernels sit in the memory-bound region with effective OI $< 2$ FLOP/byte. Each optimization stage moves kernels rightward: shared memory tiling ($tilde 2.7$), block tiling ($tilde 5$--$6.6$), vectorized loads ($tilde 9.7$). cuBLAS crosses the ridge point ($tilde 15.4$ FLOP/byte), entering the compute-bound regime.
+The roofline view (@fig:roofline) reinforces the takeaway: at sizes relevant for deep learning, SGEMM is not memory-bound in principle---the ridge point lies two orders of magnitude to the left of the workload's OI. The achieved performance therefore measures how close each kernel comes to the flat compute roof. cuBLAS reaches 77% of peak; the warp-tiled kernel, 49%; the naive kernel, 9.4%. The missing compute ceiling for hand-written kernels is not algorithmic but organizational: register-file pressure, scheduling of FMAs inside a warp, and tensor-core utilization all separate a respectable kernel from a peak one.
 
 // ═════════════════════════════════════════════════════════════════════
-= Multi-GPU Tensor Parallelism
+= Intra-Node Tensor Parallelism (NVLink)
 // ═════════════════════════════════════════════════════════════════════
 
-We implement the tensor-parallel primitives described in @tab:mlp_comm using NCCL. Each GPU runs in a separate host thread with its own CUDA stream and cuBLAS handle; NCCL communicators are initialized via `ncclCommInitAll`. The implementation includes:
+We implement the tensor-parallel primitives described in @tab:mlp_comm using NCCL. Each GPU runs in a separate host thread with its own CUDA stream and cuBLAS handle; NCCL communicators for each target GPU count are pre-initialised via `ncclCommInitAll` at startup. The implementation includes:
 
-- *Column-parallel forward/backward*: local GEMM + `ncclAllGather` (forward) / `ncclAllReduce` (backward) as derived in Section 2.3.1--2.3.2.
+- *Column-parallel forward/backward*: local GEMM + `ncclAllGather` (forward) / `ncclAllReduce` (backward).
 - *Row-parallel forward/backward*: local GEMM + `ncclAllReduce` (forward) / no communication (backward).
-- *Parallel MLP block*: composed column $arrow.r$ row parallelism with forward and backward passes, matching the two-`AllReduce` pattern in @tab:mlp_comm.
-- *Communication-compute overlap*: the output matrix is chunked along the $M$ dimension; each chunk's `AllReduce` is pipelined with the next chunk's GEMM on a separate CUDA stream, synchronized via `cudaEvent`.
+- *Parallel MLP block*: composed column $arrow.r$ row parallelism, matching the two-`AllReduce` pattern in @tab:mlp_comm.
+- *Communication--computation overlap*: the output matrix is chunked along the $M$ dimension; each chunk's `AllReduce` is pipelined with the next chunk's GEMM on a separate CUDA stream, synchronised via `cudaEvent`.
 
-All multi-GPU experiments use 8$times$H100 GPUs connected via NVLink. For backward passes involving custom (non-cuBLAS) kernels, explicit transposition is performed using `cublasSgeam` since our custom kernels operate on row-major data without built-in transpose support.
+All intra-node experiments use 8$times$H100 GPUs connected via NVLink 4.0. Backward passes that call our row-major custom kernels use `cublasSgeam` for explicit transposition, since those kernels lack a built-in transposed variant.
 
 == Strong Scaling <sec:strong>
 
 #fig(
   "../results/figures/strong_scaling.pdf",
-  [Strong scaling: total wall-clock time vs. number of GPUs for five matrix sizes up to $32768$. Dashed lines show ideal linear speedup. Larger matrices scale significantly better.],
+  [Strong scaling: total wall-clock time vs. number of GPUs for four matrix sizes, combining single-node (1, 2, 4, 8 GPUs over NVLink) and cross-node (16 GPUs over IB) measurements on a single axis. Dashed lines give ideal $T_1 slash P$ scaling. Larger matrices scale substantially further before communication dominates.],
 ) <fig:strong>
 
-@fig:strong shows that the $N = 32768$ workload scales from 1331 ms (1 GPU) to 176 ms (8 GPUs)---a $7.6 times$ speedup, or *94.5% parallel efficiency*, achieving 400 TFLOPS aggregate throughput. Even $N = 8192$ achieves a respectable $4.1 times$ speedup. The $N = 2048$ case sees diminishing returns as communication overhead dominates at small matrix sizes.
+@fig:strong summarises the scaling behaviour. The $N = 16384$ workload scales from 171.6 ms (1 GPU) to 24.4 ms (8 GPUs), a $7.03 times$ speedup and *87.8% parallel efficiency*, reaching 360 TFLOPS aggregate throughput. At $N = 8192$, the curve flattens earlier ($5.8 times$ at 8 GPUs) because the 128 MB `AllGather` payload already costs a non-trivial fraction of the shorter GEMM. The $N = 2048$ line is the cautionary tale: past 4 GPUs the 16 MB `AllGather` takes longer than the shard-sized GEMM, so adding GPUs *increases* wall-clock time. The jog at 8$arrow.r$16 GPUs for $N = 2048$ and $N = 4096$ marks the transition from NVLink to cross-node IB (see Section 7).
 
 #fig(
   "../results/figures/strong_scaling_efficiency.pdf",
-  [Parallel efficiency $eta = T_1 / (p dot T_p)$ for strong scaling. At $N = 32768$, efficiency remains above 94% at 8 GPUs. Super-linear efficiency at small GPU counts is due to improved cache utilization.],
+  [Parallel efficiency $eta = T_1 slash (P dot T_P)$. At $N = 16384$, efficiency remains 88% at 8 GPUs on NVLink and 61% at 16 GPUs across two nodes; small matrices collapse to near-zero efficiency well before the node boundary.],
 ) <fig:efficiency>
 
-@fig:efficiency shows that large matrices maintain near-ideal efficiency. At $N = 32768$, efficiency stays above 94% even at 8 GPUs because communication ($tilde 11$ ms) is dwarfed by compute ($tilde 166$ ms). Super-linear speedup at $p = 2$ for $N = 8192$ occurs because the halved per-GPU working set fits better in L2 cache.
+@fig:efficiency makes the same story explicit. Large matrices retain high efficiency because compute grows as $O(N^3)$ while communication volume grows only as $O(N^2)$. Small matrices dip below 10% efficiency within the NVLink domain.
 
 == Weak Scaling
 
 #fig(
   "../results/figures/weak_scaling.pdf",
-  [Weak scaling with fixed $2048 times 2048$ local workload per GPU. Left: total time increases modestly from 0.44 ms to 1.12 ms. Right: aggregate throughput scales from 39.5 to 123.2 TFLOPS ($3.1 times$ at $8 times$ GPUs).],
+  [Weak scaling: three per-GPU tile sizes ($2048$, $4096$, $8192$) held fixed while the number of GPUs increases. Left: total time (log scale) grows mildly---the overhead is entirely from `AllGather`. Right: aggregate throughput in GFLOPS approaches linear scaling as the per-GPU tile grows.],
   scope: "parent",
   width: 80%,
 ) <fig:weak>
 
-Under weak scaling (@fig:weak), total time increases from 0.44 ms (1 GPU) to 1.12 ms (8 GPUs)---a $2.6 times$ overhead for $8 times$ the total work. Aggregate throughput reaches 123.2 TFLOPS, which is $3.1 times$ the single-GPU baseline. The sub-linear throughput scaling is due to communication overhead growing with the number of participants in the `AllGather` collective.
+Under weak scaling (@fig:weak), the 2048 tile incurs the largest relative slowdown ($2.75 times$ at 8 GPUs) because `AllGather` latency dominates; the 8192 tile stays within $1.20 times$ of the single-GPU time and reaches 324 TFLOPS aggregate, $6.7 times$ the single-GPU baseline at that tile size. Weak scaling therefore acts as a direct probe of the communication-to-computation ratio at each tile size.
 
-== Communication-Compute Analysis <sec:ratio>
+== Communication--Computation Analysis <sec:ratio>
 
-This is the central experiment of the project, directly addressing the question: _how does the communication-to-computation ratio evolve as custom GEMM kernels are optimized?_
+This is the central experiment of the project: _how does the communication-to-computation ratio evolve as local kernels are optimised, and how does it scale with matrix size?_
 
 #fig(
   "../results/figures/comm_compute_ratio_size.pdf",
-  [GEMM time vs. communication time at different matrix sizes (8 GPUs, cuBLAS kernel). The ratio decreases from 0.99 at $N = 2048$ to 0.07 at $N = 32768$ as compute grows $O(N^3)$ while communication grows $O(N^2)$.],
+  [GEMM time vs.\ communication time at different matrix sizes on 8 GPUs (cuBLAS kernel, NVLink). The annotated ratio drops from 1.02 at $N = 2048$ to 0.19 at $N = 16384$ as compute grows $O(N^3)$ while the `AllGather` payload grows only $O(N^2)$.],
 ) <fig:ratio_size>
 
-@fig:ratio_size demonstrates the cubic-vs-quadratic scaling law. At $N = 2048$, communication (0.47 ms) nearly equals compute (0.48 ms), yielding a ratio of 0.99. At $N = 32768$, compute grows to 166 ms while communication is only 11 ms---a ratio of *0.07*. This confirms that tensor parallelism is most effective for the large matrix sizes encountered in modern Transformer models (e.g., hidden dimension 12288--16384 in GPT-3/LLaMA).
+@fig:ratio_size captures the cubic-vs-quadratic scaling law. At $N = 2048$, communication (0.54 ms) and compute (0.53 ms) are essentially equal. By $N = 16384$, compute grows to 21.7 ms while communication is only 4.2 ms---a ratio of 0.19. This matches the asymptotic expectation $tilde N slash B$ for ratio$(N)$ and predicts that contemporary Transformer hidden dimensions ($N gt.eq 8192$, as in Llama-2 70B or GPT-3 175B) sit comfortably in the compute-dominated regime.
 
 #fig(
   "../results/figures/comm_compute_ratio_kernel.pdf",
-  [Left: absolute GEMM and communication time per kernel at $N = 4096$ on 8 GPUs. Communication time is constant ($tilde 0.64$ ms) across kernels. Right: the communication-to-compute ratio rises monotonically from 0.20 (naive) to 0.85 (cuBLAS) as kernels get faster.],
+  [Left: stacked absolute GEMM and communication time per kernel at $N = 4096$, 8 GPUs (the Uncoalesced kernel is dropped because its 35 ms GEMM compresses the chart). Right: communication-to-computation ratio rising monotonically from 0.22 (Naive) to 0.88 (cuBLAS) as the local GEMM gets faster.],
   scope: "parent",
   width: 80%,
 ) <fig:ratio_kernel>
 
-@fig:ratio_kernel is the *key result*. Communication time is constant across kernels ($tilde 0.64$ ms)---it depends only on data volume and interconnect bandwidth. As local GEMM time decreases from 3.15 ms (naive) to 0.75 ms (cuBLAS), the ratio rises from 0.20 to 0.85. This means:
+@fig:ratio_kernel is the central result of the project. Communication time is the same ($approx 0.69$ ms) for every local kernel---it is a property of the `AllGather` payload and the NVLink fabric, not of the local GEMM. As the local GEMM accelerates from 3.20 ms (Naive) to 0.78 ms (cuBLAS), the ratio rises from 0.22 to 0.88. Interpreting the extremes:
 
-- For *naive kernels*, communication is negligible (20% of compute)---further kernel optimization yields direct end-to-end speedup.
-- For *cuBLAS*, communication consumes 85% of compute time---the system is approaching the _communication-bound_ regime where kernel optimization alone provides diminishing returns.
+- With a *naive* kernel, communication is only 22% of compute: further kernel optimisation translates almost directly into end-to-end speedup.
+- With *cuBLAS*, communication has already climbed to 88% of compute: even infinite further GEMM speedup would buy at most a $1.88 times$ end-to-end improvement. The system is within a factor of two of the _communication-bound_ regime.
 
-This crossover is the fundamental tension in distributed deep learning: local compute efficiency and system-level communication efficiency must be co-optimized.
+The crossover is the fundamental tension of distributed deep learning: once local compute is fast enough, only the interconnect matters.
 
 == MLP Forward and Backward
 
 #fig(
   "../results/figures/mlp_fwd_bwd.pdf",
-  [Parallel MLP block timing on 8 GPUs. Backward pass takes 1.1$times$--1.7$times$ the forward pass, consistent with the additional GEMM operations for weight and input gradients.],
+  [Parallel MLP (column $arrow.r$ row) forward + backward on 8 GPUs. As the matrix grows, the backward/forward ratio converges to its algorithmic limit of $2 times$ (2 GEMMs forward, 4 GEMMs backward).],
 ) <fig:mlp>
 
-@fig:mlp shows the MLP block timing. The backward-to-forward ratio increases with matrix size (1.1$times$ at $N = 2048$ to 1.7$times$ at $N = 8192$), consistent with the backward pass requiring three GEMM operations per layer versus one in the forward pass, with the additional operations becoming more dominant as the compute-to-overhead ratio increases.
+@fig:mlp shows the MLP block's forward and backward time. At $N gt.eq 8192$, the backward pass is almost exactly $2 times$ the forward, consistent with the algorithmic count (2 GEMMs forward vs. 4 GEMMs backward, each pass sharing a single `AllReduce`). At small sizes, the ratio inflates ($10.3 times$ at $N = 2048$) because fixed per-call launch and synchronisation overhead in the backward's extra kernels dwarfs the actual arithmetic. This is an artefact of the launch-overhead regime rather than a property of the algorithm.
 
-== Communication-Compute Overlap
+== Communication--Computation Overlap
 
 #fig(
   "../results/figures/overlap_comparison.pdf",
-  [Row-parallel forward with and without communication-compute overlap (4 chunks). Overlap provides marginal speedup ($1.02 times$) only at $N = 8192$ and introduces overhead at smaller sizes.],
+  [Row-parallel forward with and without chunked overlap (4 chunks). Overlap is neutral-to-harmful at small sizes (event-sync overhead dominates), helps at $N = 8192$ ($1.25 times$ nominal, high variance), and settles to a modest $1.06 times$ at $N = 16384$.],
 ) <fig:overlap>
 
-The overlap experiment (@fig:overlap) splits the output along the M dimension into 4 chunks, pipelining each chunk's `AllReduce` with the next chunk's GEMM on separate CUDA streams. Results show:
+The overlap experiment (@fig:overlap) splits the output along the $M$ dimension into four chunks, pipelining each chunk's `AllReduce` with the next chunk's GEMM on a separate CUDA stream. At $N = 2048$ and $N = 4096$, overlap actually hurts ($0.90 times$ and $0.94 times$): the per-chunk GEMM is too small to hide the extra event synchronisation. At $N = 8192$ the nominal speedup is $1.25 times$, but the no-overlap baseline has 73% coefficient of variation in that row (`Total_std` of 3.8 ms on 5.2 ms mean), so the measurement is dominated by outliers. The most reliable point is $N = 16384$, where overlap delivers a clean $1.06 times$ with low variance. On H100 with NVLink, `AllReduce` latency is only $tilde 3$ ms even for 1 GB payloads, so the hideable window is small. We show in Section 7 that overlap becomes considerably more valuable when the fabric latency rises.
 
-- At $N = 2048$ and $4096$, overlap *hurts* performance (0.93$times$ and 0.96$times$) due to event synchronization overhead and reduced per-chunk GEMM efficiency.
-- At $N = 8192$, a marginal $1.02 times$ speedup appears as chunk sizes become large enough to amortize overhead.
+// ═════════════════════════════════════════════════════════════════════
+= Cross-Node Tensor Parallelism (InfiniBand)
+// ═════════════════════════════════════════════════════════════════════
 
-On H100 with NVLink, `AllReduce` latency is already very low ($tilde 1$ ms for 256 MB), limiting overlap opportunity. This technique would likely be more beneficial on systems with higher communication latency (e.g., PCIe or cross-node InfiniBand).
+To characterise tensor parallelism beyond the NVLink domain, we replicate the column-parallel strong-scaling and ratio-vs-size experiments on 16 GPUs spanning two nodes connected by 4$times$400 Gb/s InfiniBand. NCCL is forced into each of four transport configurations in a single benchmark run so that all transports see the same process layout and GPU placement:
+
+#figure(
+  table(
+    columns: (auto, auto),
+    inset: 6pt,
+    align: (left, left),
+    stroke: none,
+    table.hline(),
+    table.header([*Tag*], [*Environment*]),
+    table.hline(stroke: 0.5pt),
+    [`auto`], [NCCL default selection (picks IB + GDRDMA on this system)],
+    [`ib`],   [`NCCL_NET=IB NCCL_IB_DISABLE=0`],
+    [`ring`], [`NCCL_ALGO=Ring`, otherwise auto],
+    [`tcp`],  [`NCCL_IB_DISABLE=1` --- forces the TCP socket plugin],
+    table.hline(),
+  ),
+  caption: [Transport configurations swept across the 16-GPU run. `NCCL_ALGO=Tree` was attempted but NCCL does not support `AllGather` under the Tree algorithm, so that variant is omitted.],
+) <tab:transports>
+
+All four runs verify that the `auto`, `ib`, and `ring` paths use `NET/IB` with `GDRDMA` over all four HCAs (`mlx5_0/1/4/5`), while `tcp` falls back to plain sockets as intended.
+
+== Transport Sweep: IB vs.\ TCP <sec:transport>
+
+#fig(
+  "../results/figures/transport_sweep.pdf",
+  [Left: per-size `AllGather` time at 16 GPUs across the four transport configurations (log-log). Right: the resulting communication/computation ratio for the same run. IB, auto, and ring trace the same curve; TCP lies two orders of magnitude above.],
+  scope: "parent",
+  width: 95%,
+) <fig:transport>
+
+@fig:transport is the headline result for the multi-node study. At $N = 32768$, the IB-backed transports move the 4 GB `AllGather` payload in 23.3--25.3 ms (consistent with $tilde 175$ GB/s effective goodput per GPU), while the TCP fallback requires 2.93 _seconds_---a $125 times$ slowdown that completely dominates every other cost in the system. The right panel translates this into ratio-vs-size: the IB ratio peaks at 1.4 around $N = 4096$ and then decreases as compute takes over, whereas TCP peaks at over $100times$ the compute time at $N = 8192$ and remains in the communication-bound regime across the entire measured range.
+
+The practical implication is stark: a hardware-adequate cluster (IB 400 Gb/s with GDRDMA) and a software fallback (TCP over ethernet) are not a spectrum of performance, they are different regimes of operation. In the TCP case, accelerating the local GEMM by any amount is essentially invisible.
+
+== Strong Scaling Across the Node Boundary
+
+The right-most data points in @fig:strong and @fig:efficiency are taken from this run. Three observations:
+
++ *The node boundary is visible but not catastrophic for compute-heavy shapes.* $N = 16384$ goes from 24.4 ms at 8 NVLink GPUs to 17.5 ms at 16 IB GPUs---a further $1.39 times$ speedup. The efficiency drop from 88% to 61% is the cost of crossing the IB fabric.
++ *Very large matrices cross the boundary cheaply.* The $N = 32768$ workload on 16 GPUs hits 667 TFLOPS aggregate (compute 86 ms, communication 23 ms), the largest throughput we measure anywhere. Its communication/computation ratio at 16 GPUs is 0.28, still well inside the compute-dominated regime.
++ *Small matrices are punished by the fabric jump.* $N = 2048$ and $N = 4096$ go _slower_ when moving from NVLink 8-GPU to IB 16-GPU because both the `AllGather` latency and the shrunken local GEMM move in the wrong direction.
+
+Taken together with the intra-node ratio experiment, the multi-node data gives a concrete prescription: choose tensor parallelism width such that the sharded GEMM stays comfortably to the left of the bandwidth-limited `AllGather`. On this cluster, that threshold is $N approx 8192$ for 8-way NVLink and $N approx 16384$ for 16-way across IB.
 
 // ═════════════════════════════════════════════════════════════════════
 = Conclusion
 // ═════════════════════════════════════════════════════════════════════
 
-This project provides a comprehensive study of GEMM optimization and tensor parallelism across three dimensions:
+This project provides a comprehensive study of GEMM optimisation and tensor parallelism at three scales---a single GPU, a single-node multi-GPU domain over NVLink, and a cross-node deployment over InfiniBand.
 
-*Single-GPU kernel optimization.* Seven progressively optimized CUDA kernels demonstrate the transition from memory-bound ($tilde 6{,}300$ GFLOPS) to compute-bound ($tilde 32{,}800$ GFLOPS) operation. The most impactful optimization is 2D register blocking, which reduces shared memory reads per FMA from 2 to 0.25. Our best custom kernel achieves 63% of cuBLAS throughput on FP32---the remaining gap is attributable to cuBLAS's Tensor Core utilization and auto-tuning.
+*Single-GPU kernel optimisation.* Seven progressively optimised CUDA kernels trace the path from memory-bound ($tilde 6.3$ TFLOPS) to near-compute-bound ($tilde 32.8$ TFLOPS) FP32 SGEMM. The dominant improvement is 2D register blocking, which amortises shared-memory reads across many FMAs. Our best hand-written kernel reaches 63% of cuBLAS, and the remaining gap is attributable almost entirely to cuBLAS's TF32 tensor-core path and offline autotuning.
 
-*Multi-GPU tensor parallelism.* Scaling experiments on 8$times$H100 GPUs with matrices up to $32768 times 32768$ demonstrate near-ideal strong scaling and quantify the communication-compute crossover: as local kernels approach peak efficiency, the communication-to-computation ratio rises from 0.20 (naive) to 0.85 (cuBLAS), directly measuring the diminishing returns of kernel optimization alone in distributed settings.
+*Intra-node tensor parallelism.* On 8$times$H100 NVLink, strong scaling at $N = 16384$ delivers a $7.03 times$ speedup (88% efficiency) and 360 TFLOPS aggregate throughput. The communication-to-computation ratio rises monotonically from 0.22 (naive) to 0.88 (cuBLAS) as the local GEMM gets faster: a direct measurement of the crossover where system-level communication begins to dominate.
 
-*Software engineering.* The codebase follows an object-oriented, RAII-based design with a self-registering kernel registry (open-closed principle), move-only resource wrappers (no manual `cudaFree`), and composable gradient GEMM helpers. This architecture enables adding new kernel implementations via a single file with zero modifications to existing code.
+*Cross-node tensor parallelism.* Extending to 16 GPUs over 400 Gb/s IB, the $N = 32768$ workload reaches 667 TFLOPS aggregate. A transport sweep quantifies how much the fabric matters: forcing NCCL onto plain TCP sockets inflates the 4 GB `AllGather` by $125 times$, pushing the ratio to $>100$ and swamping any kernel-level optimisation.
 
-These results underscore that efficient distributed deep learning requires *co-optimization* of local compute kernels, system-level communication infrastructure, and clean software abstractions---a principle that motivates ongoing research in communication-avoiding algorithms, kernel fusion, and hardware interconnect design.
+*Software engineering.* The codebase follows an object-oriented, RAII-based design with a self-registering kernel registry, move-only resource wrappers (no manual `cudaFree`), and composable gradient-GEMM helpers. New kernels are added through a single file with zero changes to any existing code.
+
+Taken together, the results support a simple design rule: at any given hardware scale, choose tensor-parallel width so the sharded local GEMM stays to the left of the interconnect-bound `AllGather`/`AllReduce`---and verify that the interconnect is actually doing what you think it is.
 
 // ═════════════════════════════════════════════════════════════════════
 // References
@@ -558,17 +527,19 @@ These results underscore that efficient distributed deep learning requires *co-o
     table.hline(),
     table.header([*Component*], [*Specification*]),
     table.hline(stroke: 0.5pt),
-    [GPU], [8 $times$ NVIDIA H100 80GB HBM3 (SXM5)],
-    [GPU Interconnect], [NVLink 4.0, all-to-all NV18 (900 GB/s bidirectional per GPU)],
-    [GPU Compute], [132 SMs, 1980 MHz boost, sm\_90, 33.5 TFLOPS FP32 peak],
+    [GPU (per node)], [8 $times$ NVIDIA H100 80 GB HBM3 (SXM5)],
+    [Intra-node interconnect], [NVLink 4.0, all-to-all NV18 (900 GB/s bidirectional per GPU)],
+    [Inter-node interconnect], [4 $times$ Mellanox ConnectX-7 400 Gb/s InfiniBand per node, GPUDirect RDMA],
+    [GPU Compute], [132 SMs, 1980 MHz boost, sm\_90, 67 TFLOPS FP32 dense peak (FMA-counted)],
     [GPU Memory], [80 GB HBM3, $tilde$3.35 TB/s bandwidth per GPU],
-    [CPU], [2 $times$ Intel Xeon Gold 6448Y (32 cores / 64 threads each, 128 threads total)],
-    [System Memory], [2 TB DDR5],
+    [CPU (per node)], [2 $times$ Intel Xeon Gold 6448Y (32 cores / 64 threads each, 128 threads total)],
+    [System Memory (per node)], [2 TB DDR5],
     [OS], [Ubuntu 24.04.4 LTS (kernel 5.14.0)],
     [CUDA Toolkit], [13.1],
     [NCCL], [2.29.3],
     [GPU Driver], [550.90.07],
+    [Max world size measured], [16 GPUs (2 nodes $times$ 8 GPUs)],
     table.hline(),
   ),
-  caption: [Hardware and software configuration.],
+  caption: [Hardware and software configuration. Single-node runs use one node with 8 GPUs over NVLink; multi-node runs span two nodes over 400 Gb/s InfiniBand.],
 ) <tab:setup>
