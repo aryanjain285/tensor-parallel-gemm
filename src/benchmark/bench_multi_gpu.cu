@@ -470,7 +470,8 @@ int main(int argc, char** argv) {
     printf("------------------------------------------------------------------------"
            "-----\n");
 
-    for (int S : sizes) {
+    // Square shape (M=K=H=N=S, what was here before).
+    for (int S : mlp_sizes) {
         const int M = S, K = S, H = S, N = S;
         const int H_local = H / max_gpus;
 
@@ -504,6 +505,62 @@ int main(int argc, char** argv) {
     }
 
     // =====================================================================
+    // Experiment 5b: GPT-style MLP (hidden expansion ratio = 4)
+    // M [batch*seq] * K [hidden] -> H=4K [intermediate, sharded] -> K
+    // =====================================================================
+    printf("\n===== Exp 5b: GPT-style MLP (H = 4*K, %d GPUs) =====\n", max_gpus);
+    printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s\n", "M", "K", "H", "N", "Fwd(ms)",
+           "Fwd_std", "Bwd(ms)", "Bwd_std", "Total(ms)");
+    printf("-----------------------------------------------------------------------------\n");
+
+    struct MLPShape {
+        int M;
+        int K;
+    };
+    const std::vector<MLPShape> mlp_shapes = {
+        { 8192, 2048},
+        {16384, 4096},
+        {32768, 8192},
+        {32768, 12288},
+    };
+
+    for (auto sh : mlp_shapes) {
+        const int M = sh.M;
+        const int K = sh.K;
+        const int H = 4 * K;
+        const int N = K;
+        const int H_local = H / max_gpus;
+
+        std::vector<MLPBuffers> bufs;
+        bufs.reserve(max_gpus);
+        for (int g = 0; g < max_gpus; g++) bufs.emplace_back(g, M, K, H_local, N);
+
+        BenchStats fwd = benchmark_stats(max_gpus, kWarmup, kRepeat, [&](int g) {
+            auto& ctx = contexts[g];
+            ctx.activate();
+            parallel_mlp_forward(bufs[g].X.get(), bufs[g].W1.get(), bufs[g].W2.get(),
+                                 bufs[g].Hidden.get(), bufs[g].YPartial.get(), bufs[g].Y.get(), M,
+                                 K, H, N, max_gpus, g, ctx.handle, comms.get(max_gpus, g),
+                                 ctx.compute_stream, kernel);
+            ctx.compute_stream.synchronize();
+        });
+
+        BenchStats bwd = benchmark_stats(max_gpus, kWarmup, kRepeat, [&](int g) {
+            auto& ctx = contexts[g];
+            ctx.activate();
+            parallel_mlp_backward(bufs[g].X.get(), bufs[g].W1.get(), bufs[g].W2.get(),
+                                  bufs[g].Hidden.get(), bufs[g].dY.get(), bufs[g].dW1.get(),
+                                  bufs[g].dW2.get(), bufs[g].dHidden.get(), bufs[g].dXPartial.get(),
+                                  bufs[g].dX.get(), M, K, H, N, max_gpus, g, ctx.handle,
+                                  comms.get(max_gpus, g), ctx.compute_stream, kernel);
+            ctx.compute_stream.synchronize();
+        });
+
+        printf("%-6d %-6d %-6d %-6d  %10.3f %10.3f  %10.3f %10.3f  %10.3f\n", M, K, H, N, fwd.mean,
+               fwd.stddev, bwd.mean, bwd.stddev, fwd.mean + bwd.mean);
+    }
+
+    // =====================================================================
     // Experiment 6: Communication-Compute Overlap
     // =====================================================================
     printf("\n===== Exp 6: Row Parallel — No Overlap vs Overlap (%d GPUs) =====\n", max_gpus);
@@ -512,7 +569,7 @@ int main(int argc, char** argv) {
     printf("------------------------------------------------------------------------"
            "---\n");
 
-    for (int S : sizes) {
+    for (int S : ovlp_sizes) {
         const int M = S, N = S, K = S;
         const int K_local = K / max_gpus;
         constexpr int num_chunks = 4;
