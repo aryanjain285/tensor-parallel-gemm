@@ -3,13 +3,14 @@
 # ===========================================================================
 # Targets:
 #   bench_single   — Single-GPU kernel benchmark (correctness + GFLOPS)
-#   bench_multi    — Multi-GPU tensor parallel benchmark (scaling analysis)
+#   bench_multi    — Single-node multi-GPU benchmark (threaded, up to 8 GPUs)
+#   bench_node     — Cross-node benchmark (TCP bootstrap + NCCL, no MPI)
 #   all            — Build everything
 #   clean          — Remove build artifacts
 #
 # Environment:
 #   CUDA_HOME      — CUDA toolkit root (default: /usr/local/cuda)
-#   NCCL_HOME      — NCCL install root (default: /usr/local)
+#   NCCL_HOME      — NCCL install root (default: /usr)
 #   GPU_ARCH       — Target GPU architecture (default: sm_80 for A100)
 # ===========================================================================
 
@@ -46,9 +47,9 @@ BUILD_DIR  := build
 # Targets
 # ===========================================================================
 
-.PHONY: all clean bench_single bench_multi
+.PHONY: all clean bench_single bench_multi bench_node
 
-all: bench_single bench_multi
+all: bench_single bench_multi bench_node
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -66,6 +67,14 @@ bench_multi: $(BUILD_DIR)
 		$(KERNEL_SRCS) \
 		$(LDFLAGS) $(LIBS_MULTI) \
 		-o $(BUILD_DIR)/bench_multi_gpu
+
+bench_node: $(BUILD_DIR)
+	$(NVCC) $(NVCCFLAGS) $(INCLUDES) \
+		src/benchmark/bench_multi_node.cu \
+		src/tensor_parallel/tensor_parallel.cu \
+		$(KERNEL_SRCS) \
+		$(LDFLAGS) $(LIBS_MULTI) \
+		-o $(BUILD_DIR)/bench_multi_node
 
 clean:
 	rm -rf $(BUILD_DIR)
