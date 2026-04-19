@@ -16,6 +16,7 @@
 
 #include "../kernels/kernel_registry.cuh"
 #include "../tensor_parallel/tensor_parallel.cuh"
+#include "../utils/bench_stats.cuh"
 #include "../utils/cuda_raii.cuh"
 #include "../utils/cuda_utils.cuh"
 #include "../utils/device_matrix.cuh"
@@ -106,17 +107,18 @@ void run_on_gpus(int active_gpus, Fn fn) {
 }
 
 template <typename Fn>
-double benchmark_wall_ms(int active_gpus, int warmup, int repeat, Fn fn) {
+BenchStats benchmark_stats(int active_gpus, int warmup, int repeat, Fn fn) {
     for (int i = 0; i < warmup; i++) run_on_gpus(active_gpus, fn);
 
-    double total_ms = 0.0;
+    std::vector<double> samples;
+    samples.reserve(repeat);
     for (int i = 0; i < repeat; i++) {
         auto start = std::chrono::high_resolution_clock::now();
         run_on_gpus(active_gpus, fn);
         auto stop = std::chrono::high_resolution_clock::now();
-        total_ms += std::chrono::duration<double, std::milli>(stop - start).count();
+        samples.push_back(std::chrono::duration<double, std::milli>(stop - start).count());
     }
-    return total_ms / repeat;
+    return compute_stats(samples);
 }
 
 std::vector<int> build_scaling_counts(int max_gpus) {
@@ -212,6 +214,7 @@ struct RowParallelBuffers {
 // ============================================================================
 
 int main(int argc, char** argv) {
+    setvbuf(stdout, nullptr, _IOLBF, 0);
     int max_gpus = 2;
     int kernel_id = KernelRegistry::count() - 1;  // default: last registered (cuBLAS)
 
@@ -251,16 +254,17 @@ int main(int argc, char** argv) {
     CommRegistry comms(max_gpus);
     const auto scaling_counts = build_scaling_counts(max_gpus);
     const std::vector<int> sizes = {2048, 4096, 8192, 16384, 32768};
-    constexpr int kWarmup = 2;
-    constexpr int kRepeat = 5;
+    constexpr int kWarmup = 5;
+    constexpr int kRepeat = 20;
 
     // =====================================================================
     // Experiment 1: Strong Scaling
     // =====================================================================
     printf("===== Exp 1: Strong Scaling — Column Parallel Forward =====\n");
-    printf("%-6s %-6s %-6s %-6s  %10s  %10s  %10s  %8s\n", "M", "N", "K", "GPUs", "GEMM(ms)",
-           "Comm(ms)", "Total(ms)", "GFLOPS");
-    printf("-----------------------------------------------------------------------\n");
+    printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s %10s  %8s\n", "M", "N", "K", "GPUs",
+           "GEMM(ms)", "GEMM_std", "Comm(ms)", "Comm_std", "Total(ms)", "Total_std", "GFLOPS");
+    printf("--------------------------------------------------------------------------"
+           "-----------------------\n");
 
     for (int active_gpus : scaling_counts) {
         for (int S : sizes) {
@@ -271,7 +275,7 @@ int main(int argc, char** argv) {
             bufs.reserve(active_gpus);
             for (int g = 0; g < active_gpus; g++) bufs.emplace_back(g, M, K, N_local, N);
 
-            double gemm_ms = benchmark_wall_ms(active_gpus, kWarmup, kRepeat, [&](int g) {
+            BenchStats gemm = benchmark_stats(active_gpus, kWarmup, kRepeat, [&](int g) {
                 auto& ctx = contexts[g];
                 ctx.activate();
 
@@ -280,9 +284,9 @@ int main(int argc, char** argv) {
                 ctx.compute_stream.synchronize();
             });
 
-            double comm_ms = 0.0;
+            BenchStats comm{};
             if (active_gpus > 1) {
-                comm_ms = benchmark_wall_ms(active_gpus, kWarmup, kRepeat, [&](int g) {
+                comm = benchmark_stats(active_gpus, kWarmup, kRepeat, [&](int g) {
                     auto& ctx = contexts[g];
                     ctx.activate();
 
@@ -293,7 +297,7 @@ int main(int argc, char** argv) {
                 });
             }
 
-            double total_ms = benchmark_wall_ms(active_gpus, kWarmup, kRepeat, [&](int g) {
+            BenchStats total = benchmark_stats(active_gpus, kWarmup, kRepeat, [&](int g) {
                 auto& ctx = contexts[g];
                 ctx.activate();
 
@@ -303,8 +307,9 @@ int main(int argc, char** argv) {
                 ctx.compute_stream.synchronize();
             });
 
-            printf("%-6d %-6d %-6d %-6d  %10.3f  %10.3f  %10.3f  %8.1f\n", M, N, K, active_gpus,
-                   gemm_ms, comm_ms, total_ms, gemm_gflops(M, N, K, total_ms));
+            printf("%-6d %-6d %-6d %-6d  %10.3f %10.3f  %10.3f %10.3f  %10.3f %10.3f  %8.1f\n", M,
+                   N, K, active_gpus, gemm.mean, gemm.stddev, comm.mean, comm.stddev, total.mean,
+                   total.stddev, gemm_gflops(M, N, K, total.mean));
         }
     }
 
@@ -312,9 +317,11 @@ int main(int argc, char** argv) {
     // Experiment 2: Weak Scaling
     // =====================================================================
     printf("\n===== Exp 2: Weak Scaling — Fixed M=N_local=K=2048 per GPU =====\n");
-    printf("%-6s %-6s %-6s %-6s  %10s  %10s  %10s  %8s\n", "M", "N_tot", "K", "GPUs", "GEMM(ms)",
-           "Comm(ms)", "Total(ms)", "GFLOPS");
-    printf("-----------------------------------------------------------------------\n");
+    printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s %10s  %8s\n", "M", "N_tot", "K",
+           "GPUs", "GEMM(ms)", "GEMM_std", "Comm(ms)", "Comm_std", "Total(ms)", "Total_std",
+           "GFLOPS");
+    printf("--------------------------------------------------------------------------"
+           "-----------------------\n");
 
     for (int active_gpus : scaling_counts) {
         constexpr int M = 2048, K = 2048, N_local = 2048;
@@ -324,7 +331,7 @@ int main(int argc, char** argv) {
         bufs.reserve(active_gpus);
         for (int g = 0; g < active_gpus; g++) bufs.emplace_back(g, M, K, N_local, N_total);
 
-        double gemm_ms = benchmark_wall_ms(active_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats gemm = benchmark_stats(active_gpus, kWarmup, kRepeat, [&](int g) {
             auto& ctx = contexts[g];
             ctx.activate();
             kernel.launch(bufs[g].X.get(), bufs[g].W.get(), bufs[g].Y.get(), M, N_local, K,
@@ -332,9 +339,9 @@ int main(int argc, char** argv) {
             ctx.compute_stream.synchronize();
         });
 
-        double comm_ms = 0.0;
+        BenchStats comm{};
         if (active_gpus > 1) {
-            comm_ms = benchmark_wall_ms(active_gpus, kWarmup, kRepeat, [&](int g) {
+            comm = benchmark_stats(active_gpus, kWarmup, kRepeat, [&](int g) {
                 auto& ctx = contexts[g];
                 ctx.activate();
 
@@ -344,7 +351,7 @@ int main(int argc, char** argv) {
             });
         }
 
-        double total_ms = benchmark_wall_ms(active_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats total = benchmark_stats(active_gpus, kWarmup, kRepeat, [&](int g) {
             auto& ctx = contexts[g];
             ctx.activate();
             column_parallel_forward(bufs[g].X.get(), bufs[g].W.get(), bufs[g].Y.get(),
@@ -353,16 +360,18 @@ int main(int argc, char** argv) {
             ctx.compute_stream.synchronize();
         });
 
-        printf("%-6d %-6d %-6d %-6d  %10.3f  %10.3f  %10.3f  %8.1f\n", M, N_total, K, active_gpus,
-               gemm_ms, comm_ms, total_ms, gemm_gflops(M, N_total, K, total_ms));
+        printf("%-6d %-6d %-6d %-6d  %10.3f %10.3f  %10.3f %10.3f  %10.3f %10.3f  %8.1f\n", M,
+               N_total, K, active_gpus, gemm.mean, gemm.stddev, comm.mean, comm.stddev, total.mean,
+               total.stddev, gemm_gflops(M, N_total, K, total.mean));
     }
 
     // =====================================================================
     // Experiment 3: Comm/Compute Ratio vs Matrix Size
     // =====================================================================
     printf("\n===== Exp 3: Comm/Compute Ratio vs Matrix Size (%d GPUs) =====\n", max_gpus);
-    printf("%-6s  %10s  %10s  %8s\n", "Size", "GEMM(ms)", "Comm(ms)", "Ratio");
-    printf("------------------------------------------------------\n");
+    printf("%-6s  %10s %10s  %10s %10s  %8s\n", "Size", "GEMM(ms)", "GEMM_std", "Comm(ms)",
+           "Comm_std", "Ratio");
+    printf("----------------------------------------------------------------------\n");
 
     for (int S : sizes) {
         const int M = S, N = S, K = S;
@@ -372,7 +381,7 @@ int main(int argc, char** argv) {
         bufs.reserve(max_gpus);
         for (int g = 0; g < max_gpus; g++) bufs.emplace_back(g, M, K, N_local, N);
 
-        double gemm_ms = benchmark_wall_ms(max_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats gemm = benchmark_stats(max_gpus, kWarmup, kRepeat, [&](int g) {
             auto& ctx = contexts[g];
             ctx.activate();
             kernel.launch(bufs[g].X.get(), bufs[g].W.get(), bufs[g].Y.get(), M, N_local, K,
@@ -380,7 +389,7 @@ int main(int argc, char** argv) {
             ctx.compute_stream.synchronize();
         });
 
-        double comm_ms = benchmark_wall_ms(max_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats comm = benchmark_stats(max_gpus, kWarmup, kRepeat, [&](int g) {
             auto& ctx = contexts[g];
             ctx.activate();
             NCCL_CHECK(ncclAllGather(bufs[g].Y.get(), bufs[g].Y_full.get(), M * N_local, ncclFloat,
@@ -388,7 +397,8 @@ int main(int argc, char** argv) {
             ctx.comm_stream.synchronize();
         });
 
-        printf("%-6d  %10.3f  %10.3f  %8.2f\n", S, gemm_ms, comm_ms, comm_ms / gemm_ms);
+        printf("%-6d  %10.3f %10.3f  %10.3f %10.3f  %8.2f\n", S, gemm.mean, gemm.stddev, comm.mean,
+               comm.stddev, gemm.mean > 0 ? comm.mean / gemm.mean : 0.0);
     }
 
     // =====================================================================
@@ -396,8 +406,9 @@ int main(int argc, char** argv) {
     // =====================================================================
     printf("\n===== Exp 4: Comm/Compute Ratio across Kernels (size=4096, %d GPUs) =====\n",
            max_gpus);
-    printf("%-20s  %10s  %10s  %8s\n", "Kernel", "GEMM(ms)", "Comm(ms)", "Ratio");
-    printf("------------------------------------------------------\n");
+    printf("%-20s  %10s %10s  %10s %10s  %8s\n", "Kernel", "GEMM(ms)", "GEMM_std", "Comm(ms)",
+           "Comm_std", "Ratio");
+    printf("----------------------------------------------------------------------------\n");
 
     {
         constexpr int S = 4096;
@@ -408,7 +419,7 @@ int main(int argc, char** argv) {
         bufs.reserve(max_gpus);
         for (int g = 0; g < max_gpus; g++) bufs.emplace_back(g, M, K, N_local, N);
 
-        double comm_ms = benchmark_wall_ms(max_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats comm = benchmark_stats(max_gpus, kWarmup, kRepeat, [&](int g) {
             auto& ctx = contexts[g];
             ctx.activate();
             NCCL_CHECK(ncclAllGather(bufs[g].Y.get(), bufs[g].Y_full.get(), M * N_local, ncclFloat,
@@ -419,7 +430,7 @@ int main(int argc, char** argv) {
         for (const auto& kptr : KernelRegistry::all()) {
             const GemmKernel& test_kernel = *kptr;
 
-            double gemm_ms = benchmark_wall_ms(max_gpus, kWarmup, kRepeat, [&](int g) {
+            BenchStats gemm = benchmark_stats(max_gpus, kWarmup, kRepeat, [&](int g) {
                 auto& ctx = contexts[g];
                 ctx.activate();
 
@@ -428,8 +439,9 @@ int main(int argc, char** argv) {
                 ctx.compute_stream.synchronize();
             });
 
-            printf("%-20s  %10.3f  %10.3f  %8.2f\n", test_kernel.name(), gemm_ms, comm_ms,
-                   comm_ms / gemm_ms);
+            printf("%-20s  %10.3f %10.3f  %10.3f %10.3f  %8.2f\n", test_kernel.name(), gemm.mean,
+                   gemm.stddev, comm.mean, comm.stddev,
+                   gemm.mean > 0 ? comm.mean / gemm.mean : 0.0);
         }
     }
 
@@ -437,9 +449,10 @@ int main(int argc, char** argv) {
     // Experiment 5: Parallel MLP Forward + Backward
     // =====================================================================
     printf("\n===== Exp 5: Parallel MLP Forward + Backward (%d GPUs) =====\n", max_gpus);
-    printf("%-6s %-6s %-6s %-6s  %10s  %10s  %10s\n", "M", "H", "N", "GPUs", "Fwd(ms)", "Bwd(ms)",
-           "Total(ms)");
-    printf("-----------------------------------------------------------\n");
+    printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s\n", "M", "H", "N", "GPUs", "Fwd(ms)",
+           "Fwd_std", "Bwd(ms)", "Bwd_std", "Total(ms)");
+    printf("------------------------------------------------------------------------"
+           "-----\n");
 
     for (int S : sizes) {
         const int M = S, K = S, H = S, N = S;
@@ -449,7 +462,7 @@ int main(int argc, char** argv) {
         bufs.reserve(max_gpus);
         for (int g = 0; g < max_gpus; g++) bufs.emplace_back(g, M, K, H_local, N);
 
-        double fwd_ms = benchmark_wall_ms(max_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats fwd = benchmark_stats(max_gpus, kWarmup, kRepeat, [&](int g) {
             auto& ctx = contexts[g];
             ctx.activate();
             parallel_mlp_forward(bufs[g].X.get(), bufs[g].W1.get(), bufs[g].W2.get(),
@@ -459,7 +472,7 @@ int main(int argc, char** argv) {
             ctx.compute_stream.synchronize();
         });
 
-        double bwd_ms = benchmark_wall_ms(max_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats bwd = benchmark_stats(max_gpus, kWarmup, kRepeat, [&](int g) {
             auto& ctx = contexts[g];
             ctx.activate();
             parallel_mlp_backward(bufs[g].X.get(), bufs[g].W1.get(), bufs[g].W2.get(),
@@ -470,17 +483,18 @@ int main(int argc, char** argv) {
             ctx.compute_stream.synchronize();
         });
 
-        printf("%-6d %-6d %-6d %-6d  %10.3f  %10.3f  %10.3f\n", M, H, N, max_gpus, fwd_ms, bwd_ms,
-               fwd_ms + bwd_ms);
+        printf("%-6d %-6d %-6d %-6d  %10.3f %10.3f  %10.3f %10.3f  %10.3f\n", M, H, N, max_gpus,
+               fwd.mean, fwd.stddev, bwd.mean, bwd.stddev, fwd.mean + bwd.mean);
     }
 
     // =====================================================================
     // Experiment 6: Communication-Compute Overlap
     // =====================================================================
     printf("\n===== Exp 6: Row Parallel — No Overlap vs Overlap (%d GPUs) =====\n", max_gpus);
-    printf("%-6s  %-8s  %10s  %10s  %8s\n", "Size", "Chunks", "NoOvlp(ms)", "Overlap(ms)",
-           "Speedup");
-    printf("------------------------------------------------------\n");
+    printf("%-6s  %-8s  %10s %10s  %10s %10s  %8s\n", "Size", "Chunks", "NoOvlp(ms)", "NoOvlp_std",
+           "Overlap(ms)", "Overlap_std", "Speedup");
+    printf("------------------------------------------------------------------------"
+           "---\n");
 
     for (int S : sizes) {
         const int M = S, N = S, K = S;
@@ -491,7 +505,7 @@ int main(int argc, char** argv) {
         bufs.reserve(max_gpus);
         for (int g = 0; g < max_gpus; g++) bufs.emplace_back(g, M, K_local, N);
 
-        double no_overlap_ms = benchmark_wall_ms(max_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats no_overlap = benchmark_stats(max_gpus, kWarmup, kRepeat, [&](int g) {
             auto& ctx = contexts[g];
             ctx.activate();
             row_parallel_forward(bufs[g].X.get(), bufs[g].W.get(), bufs[g].Y.get(),
@@ -500,7 +514,7 @@ int main(int argc, char** argv) {
             ctx.compute_stream.synchronize();
         });
 
-        double overlap_ms = benchmark_wall_ms(max_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats overlap = benchmark_stats(max_gpus, kWarmup, kRepeat, [&](int g) {
             auto& ctx = contexts[g];
             ctx.activate();
             row_parallel_forward_overlap(bufs[g].X.get(), bufs[g].W.get(), bufs[g].YOverlap.get(),
@@ -511,8 +525,9 @@ int main(int argc, char** argv) {
             ctx.comm_stream.synchronize();
         });
 
-        printf("%-6d  %-8d  %10.3f  %10.3f  %8.2fx\n", S, num_chunks, no_overlap_ms, overlap_ms,
-               no_overlap_ms / overlap_ms);
+        printf("%-6d  %-8d  %10.3f %10.3f  %10.3f %10.3f  %8.2fx\n", S, num_chunks, no_overlap.mean,
+               no_overlap.stddev, overlap.mean, overlap.stddev,
+               overlap.mean > 0 ? no_overlap.mean / overlap.mean : 0.0);
     }
 
     printf("\nDone.\n");

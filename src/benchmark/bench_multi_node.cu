@@ -39,6 +39,7 @@
 
 #include "../kernels/kernel_registry.cuh"
 #include "../tensor_parallel/tensor_parallel.cuh"
+#include "../utils/bench_stats.cuh"
 #include "../utils/cuda_raii.cuh"
 #include "../utils/cuda_utils.cuh"
 #include "../utils/device_matrix.cuh"
@@ -245,17 +246,18 @@ static void run_on_local_gpus(int local_gpus, Fn fn) {
 }
 
 template <typename Fn>
-static double benchmark_wall_ms(int local_gpus, int warmup, int repeat, Fn fn) {
+static BenchStats benchmark_stats(int local_gpus, int warmup, int repeat, Fn fn) {
     for (int i = 0; i < warmup; i++) run_on_local_gpus(local_gpus, fn);
 
-    double total = 0.0;
+    std::vector<double> samples;
+    samples.reserve(repeat);
     for (int i = 0; i < repeat; i++) {
         auto t0 = std::chrono::high_resolution_clock::now();
         run_on_local_gpus(local_gpus, fn);
         auto t1 = std::chrono::high_resolution_clock::now();
-        total += std::chrono::duration<double, std::milli>(t1 - t0).count();
+        samples.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
     }
-    return total / repeat;
+    return compute_stats(samples);
 }
 
 // Cross-node barrier: issue a small NCCL allreduce on every local GPU so every
@@ -360,6 +362,7 @@ struct RowParallelBuffers {
 // ============================================================================
 
 int main(int argc, char** argv) {
+    setvbuf(stdout, nullptr, _IOLBF, 0);
     NodeEnv env = read_env();
 
     // Kernel id (default = last registered, which is cuBLAS)
@@ -416,17 +419,19 @@ int main(int argc, char** argv) {
     cross_node_barrier(ctxs, barrier_bufs);
 
     const std::vector<int> sizes = {2048, 4096, 8192, 16384, 32768};
-    constexpr int kWarmup = 2;
-    constexpr int kRepeat = 5;
+    constexpr int kWarmup = 5;
+    constexpr int kRepeat = 20;
 
     // =====================================================================
     // Experiment 1: Strong Scaling — Column Parallel Forward (at world_size)
     // =====================================================================
     if (is_master) {
         printf("===== Exp 1: Strong Scaling — Column Parallel Forward =====\n");
-        printf("%-6s %-6s %-6s %-6s  %10s  %10s  %10s  %8s\n", "M", "N", "K", "GPUs", "GEMM(ms)",
-               "Comm(ms)", "Total(ms)", "GFLOPS");
-        printf("-----------------------------------------------------------------------\n");
+        printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s %10s  %8s\n", "M", "N", "K",
+               "GPUs", "GEMM(ms)", "GEMM_std", "Comm(ms)", "Comm_std", "Total(ms)", "Total_std",
+               "GFLOPS");
+        printf("--------------------------------------------------------------------------"
+               "-----------------------\n");
         fflush(stdout);
     }
 
@@ -439,7 +444,7 @@ int main(int argc, char** argv) {
         for (int g = 0; g < env.local_gpus; g++) bufs.emplace_back(g, M, K, N_local, N);
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double gemm_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats gemm = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             kernel.launch(bufs[g].X.get(), bufs[g].W.get(), bufs[g].Y.get(), M, N_local, K,
                           ctxs[g]->compute_stream);
@@ -447,7 +452,7 @@ int main(int argc, char** argv) {
         });
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double comm_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats comm = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             NCCL_CHECK(ncclAllGather(bufs[g].Y.get(), bufs[g].Y_full.get(), M * N_local, ncclFloat,
                                      ctxs[g]->comm, ctxs[g]->comm_stream));
@@ -455,7 +460,7 @@ int main(int argc, char** argv) {
         });
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double total_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats total = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             column_parallel_forward(bufs[g].X.get(), bufs[g].W.get(), bufs[g].Y.get(),
                                     bufs[g].Y_full.get(), M, N, K, env.world_size,
@@ -465,8 +470,9 @@ int main(int argc, char** argv) {
         });
 
         if (is_master) {
-            printf("%-6d %-6d %-6d %-6d  %10.3f  %10.3f  %10.3f  %8.1f\n", M, N, K, env.world_size,
-                   gemm_ms, comm_ms, total_ms, gemm_gflops(M, N, K, total_ms));
+            printf("%-6d %-6d %-6d %-6d  %10.3f %10.3f  %10.3f %10.3f  %10.3f %10.3f  %8.1f\n", M,
+                   N, K, env.world_size, gemm.mean, gemm.stddev, comm.mean, comm.stddev,
+                   total.mean, total.stddev, gemm_gflops(M, N, K, total.mean));
             fflush(stdout);
         }
     }
@@ -476,9 +482,11 @@ int main(int argc, char** argv) {
     // =====================================================================
     if (is_master) {
         printf("\n===== Exp 2: Weak Scaling — Fixed M=N_local=K=2048 per GPU =====\n");
-        printf("%-6s %-6s %-6s %-6s  %10s  %10s  %10s  %8s\n", "M", "N_tot", "K", "GPUs",
-               "GEMM(ms)", "Comm(ms)", "Total(ms)", "GFLOPS");
-        printf("-----------------------------------------------------------------------\n");
+        printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s %10s  %8s\n", "M", "N_tot", "K",
+               "GPUs", "GEMM(ms)", "GEMM_std", "Comm(ms)", "Comm_std", "Total(ms)", "Total_std",
+               "GFLOPS");
+        printf("--------------------------------------------------------------------------"
+               "-----------------------\n");
         fflush(stdout);
     }
     {
@@ -490,7 +498,7 @@ int main(int argc, char** argv) {
         for (int g = 0; g < env.local_gpus; g++) bufs.emplace_back(g, M, K, N_local, N_total);
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double gemm_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats gemm = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             kernel.launch(bufs[g].X.get(), bufs[g].W.get(), bufs[g].Y.get(), M, N_local, K,
                           ctxs[g]->compute_stream);
@@ -498,7 +506,7 @@ int main(int argc, char** argv) {
         });
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double comm_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats comm = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             NCCL_CHECK(ncclAllGather(bufs[g].Y.get(), bufs[g].Y_full.get(), M * N_local, ncclFloat,
                                      ctxs[g]->comm, ctxs[g]->comm_stream));
@@ -506,7 +514,7 @@ int main(int argc, char** argv) {
         });
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double total_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats total = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             column_parallel_forward(bufs[g].X.get(), bufs[g].W.get(), bufs[g].Y.get(),
                                     bufs[g].Y_full.get(), M, N_total, K, env.world_size,
@@ -516,9 +524,9 @@ int main(int argc, char** argv) {
         });
 
         if (is_master) {
-            printf("%-6d %-6d %-6d %-6d  %10.3f  %10.3f  %10.3f  %8.1f\n", M, N_total, K,
-                   env.world_size, gemm_ms, comm_ms, total_ms,
-                   gemm_gflops(M, N_total, K, total_ms));
+            printf("%-6d %-6d %-6d %-6d  %10.3f %10.3f  %10.3f %10.3f  %10.3f %10.3f  %8.1f\n", M,
+                   N_total, K, env.world_size, gemm.mean, gemm.stddev, comm.mean, comm.stddev,
+                   total.mean, total.stddev, gemm_gflops(M, N_total, K, total.mean));
             fflush(stdout);
         }
     }
@@ -529,8 +537,9 @@ int main(int argc, char** argv) {
     if (is_master) {
         printf("\n===== Exp 3: Comm/Compute Ratio vs Matrix Size (%d GPUs) =====\n",
                env.world_size);
-        printf("%-6s  %10s  %10s  %8s\n", "Size", "GEMM(ms)", "Comm(ms)", "Ratio");
-        printf("------------------------------------------------------\n");
+        printf("%-6s  %10s %10s  %10s %10s  %8s\n", "Size", "GEMM(ms)", "GEMM_std", "Comm(ms)",
+               "Comm_std", "Ratio");
+        printf("----------------------------------------------------------------------\n");
         fflush(stdout);
     }
 
@@ -543,7 +552,7 @@ int main(int argc, char** argv) {
         for (int g = 0; g < env.local_gpus; g++) bufs.emplace_back(g, M, K, N_local, N);
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double gemm_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats gemm = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             kernel.launch(bufs[g].X.get(), bufs[g].W.get(), bufs[g].Y.get(), M, N_local, K,
                           ctxs[g]->compute_stream);
@@ -551,7 +560,7 @@ int main(int argc, char** argv) {
         });
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double comm_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats comm = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             NCCL_CHECK(ncclAllGather(bufs[g].Y.get(), bufs[g].Y_full.get(), M * N_local, ncclFloat,
                                      ctxs[g]->comm, ctxs[g]->comm_stream));
@@ -559,8 +568,8 @@ int main(int argc, char** argv) {
         });
 
         if (is_master) {
-            printf("%-6d  %10.3f  %10.3f  %8.2f\n", S, gemm_ms, comm_ms,
-                   gemm_ms > 0 ? comm_ms / gemm_ms : 0.0);
+            printf("%-6d  %10.3f %10.3f  %10.3f %10.3f  %8.2f\n", S, gemm.mean, gemm.stddev,
+                   comm.mean, comm.stddev, gemm.mean > 0 ? comm.mean / gemm.mean : 0.0);
             fflush(stdout);
         }
     }
@@ -571,8 +580,9 @@ int main(int argc, char** argv) {
     if (is_master) {
         printf("\n===== Exp 4: Comm/Compute Ratio across Kernels (size=4096, %d GPUs) =====\n",
                env.world_size);
-        printf("%-20s  %10s  %10s  %8s\n", "Kernel", "GEMM(ms)", "Comm(ms)", "Ratio");
-        printf("------------------------------------------------------\n");
+        printf("%-20s  %10s %10s  %10s %10s  %8s\n", "Kernel", "GEMM(ms)", "GEMM_std", "Comm(ms)",
+               "Comm_std", "Ratio");
+        printf("----------------------------------------------------------------------------\n");
         fflush(stdout);
     }
     {
@@ -585,7 +595,7 @@ int main(int argc, char** argv) {
         for (int g = 0; g < env.local_gpus; g++) bufs.emplace_back(g, M, K, N_local, N);
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double comm_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats comm = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             NCCL_CHECK(ncclAllGather(bufs[g].Y.get(), bufs[g].Y_full.get(), M * N_local, ncclFloat,
                                      ctxs[g]->comm, ctxs[g]->comm_stream));
@@ -595,15 +605,16 @@ int main(int argc, char** argv) {
         for (const auto& kptr : KernelRegistry::all()) {
             const GemmKernel& tk = *kptr;
             cross_node_barrier(ctxs, barrier_bufs);
-            double gemm_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+            BenchStats gemm = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
                 activate(*ctxs[g]);
                 tk.launch(bufs[g].X.get(), bufs[g].W.get(), bufs[g].Y.get(), M, N_local, K,
                           ctxs[g]->compute_stream);
                 ctxs[g]->compute_stream.synchronize();
             });
             if (is_master) {
-                printf("%-20s  %10.3f  %10.3f  %8.2f\n", tk.name(), gemm_ms, comm_ms,
-                       gemm_ms > 0 ? comm_ms / gemm_ms : 0.0);
+                printf("%-20s  %10.3f %10.3f  %10.3f %10.3f  %8.2f\n", tk.name(), gemm.mean,
+                       gemm.stddev, comm.mean, comm.stddev,
+                       gemm.mean > 0 ? comm.mean / gemm.mean : 0.0);
                 fflush(stdout);
             }
         }
@@ -614,9 +625,10 @@ int main(int argc, char** argv) {
     // =====================================================================
     if (is_master) {
         printf("\n===== Exp 5: Parallel MLP Forward + Backward (%d GPUs) =====\n", env.world_size);
-        printf("%-6s %-6s %-6s %-6s  %10s  %10s  %10s\n", "M", "H", "N", "GPUs", "Fwd(ms)",
-               "Bwd(ms)", "Total(ms)");
-        printf("-----------------------------------------------------------\n");
+        printf("%-6s %-6s %-6s %-6s  %10s %10s  %10s %10s  %10s\n", "M", "H", "N", "GPUs",
+               "Fwd(ms)", "Fwd_std", "Bwd(ms)", "Bwd_std", "Total(ms)");
+        printf("------------------------------------------------------------------------"
+               "-----\n");
         fflush(stdout);
     }
 
@@ -629,7 +641,7 @@ int main(int argc, char** argv) {
         for (int g = 0; g < env.local_gpus; g++) bufs.emplace_back(g, M, K, H_local, N);
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double fwd_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats fwd = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             parallel_mlp_forward(bufs[g].X.get(), bufs[g].W1.get(), bufs[g].W2.get(),
                                  bufs[g].Hidden.get(), bufs[g].YPartial.get(), bufs[g].Y.get(), M,
@@ -639,7 +651,7 @@ int main(int argc, char** argv) {
         });
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double bwd_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats bwd = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             parallel_mlp_backward(bufs[g].X.get(), bufs[g].W1.get(), bufs[g].W2.get(),
                                   bufs[g].Hidden.get(), bufs[g].dY.get(), bufs[g].dW1.get(),
@@ -651,8 +663,9 @@ int main(int argc, char** argv) {
         });
 
         if (is_master) {
-            printf("%-6d %-6d %-6d %-6d  %10.3f  %10.3f  %10.3f\n", M, H, N, env.world_size,
-                   fwd_ms, bwd_ms, fwd_ms + bwd_ms);
+            printf("%-6d %-6d %-6d %-6d  %10.3f %10.3f  %10.3f %10.3f  %10.3f\n", M, H, N,
+                   env.world_size, fwd.mean, fwd.stddev, bwd.mean, bwd.stddev,
+                   fwd.mean + bwd.mean);
             fflush(stdout);
         }
     }
@@ -663,9 +676,10 @@ int main(int argc, char** argv) {
     if (is_master) {
         printf("\n===== Exp 6: Row Parallel — No Overlap vs Overlap (%d GPUs) =====\n",
                env.world_size);
-        printf("%-6s  %-8s  %10s  %10s  %8s\n", "Size", "Chunks", "NoOvlp(ms)", "Overlap(ms)",
-               "Speedup");
-        printf("------------------------------------------------------\n");
+        printf("%-6s  %-8s  %10s %10s  %10s %10s  %8s\n", "Size", "Chunks", "NoOvlp(ms)",
+               "NoOvlp_std", "Overlap(ms)", "Overlap_std", "Speedup");
+        printf("------------------------------------------------------------------------"
+               "---\n");
         fflush(stdout);
     }
 
@@ -679,7 +693,7 @@ int main(int argc, char** argv) {
         for (int g = 0; g < env.local_gpus; g++) bufs.emplace_back(g, M, K_local, N);
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double no_overlap_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats no_overlap = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             row_parallel_forward(bufs[g].X.get(), bufs[g].W.get(), bufs[g].Y.get(),
                                  bufs[g].YReduced.get(), M, N, K, env.world_size,
@@ -689,7 +703,7 @@ int main(int argc, char** argv) {
         });
 
         cross_node_barrier(ctxs, barrier_bufs);
-        double overlap_ms = benchmark_wall_ms(env.local_gpus, kWarmup, kRepeat, [&](int g) {
+        BenchStats overlap = benchmark_stats(env.local_gpus, kWarmup, kRepeat, [&](int g) {
             activate(*ctxs[g]);
             row_parallel_forward_overlap(bufs[g].X.get(), bufs[g].W.get(), bufs[g].YOverlap.get(),
                                          bufs[g].YReducedOverlap.get(), M, N, K, env.world_size,
@@ -701,8 +715,9 @@ int main(int argc, char** argv) {
         });
 
         if (is_master) {
-            printf("%-6d  %-8d  %10.3f  %10.3f  %8.2fx\n", S, num_chunks, no_overlap_ms,
-                   overlap_ms, overlap_ms > 0 ? no_overlap_ms / overlap_ms : 0.0);
+            printf("%-6d  %-8d  %10.3f %10.3f  %10.3f %10.3f  %8.2fx\n", S, num_chunks,
+                   no_overlap.mean, no_overlap.stddev, overlap.mean, overlap.stddev,
+                   overlap.mean > 0 ? no_overlap.mean / overlap.mean : 0.0);
             fflush(stdout);
         }
     }

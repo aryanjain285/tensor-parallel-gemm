@@ -58,53 +58,93 @@ def run(cmd, **kw):
 
 
 def parse_single_gpu(text):
-    result = {"correctness": {}, "performance": {}}
+    result = {"correctness": {}, "performance": {}, "stddev_pct": {}, "detail_2048": {}}
 
     for m in re.finditer(r"^(\S+)\s*:\s*(PASS|FAIL).*", text, re.MULTILINE):
         result["correctness"][m.group(1)] = m.group(2)
 
-    perf_block = text.split("Performance Benchmark (GFLOPS)")
-    if len(perf_block) < 2:
+    # Loose-match title so the parser still works whether the binary prints
+    # "Performance Benchmark (GFLOPS)" or "Performance Benchmark (GFLOPS, mean of N)".
+    m = re.search(r"Performance Benchmark \(GFLOPS[^)]*\)", text)
+    if not m:
         return result
+    block = text[m.end():]
 
-    block = perf_block[1]
-    lines = [line for line in block.strip().splitlines() if line.strip()]
-    header_line = None
-    data_lines = []
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or set(stripped).issubset({"-", " ", "="}):
-            continue
-        if header_line is None:
-            header_line = line
-        else:
-            data_lines.append(line)
+    # Stop at the next section header so we don't bleed into the stddev table.
+    nxt = re.search(r"^=====", block, re.MULTILINE)
+    perf_block = block[: nxt.start()] if nxt else block
 
-    if header_line is None:
-        return result
+    def _parse_kernel_by_size(segment: str):
+        lines = [ln for ln in segment.strip().splitlines() if ln.strip()]
+        header_line = None
+        data_lines = []
+        for ln in lines:
+            s = ln.strip()
+            if not s or set(s).issubset({"-", " ", "="}):
+                continue
+            if header_line is None:
+                header_line = ln
+            else:
+                data_lines.append(ln)
+        if not header_line:
+            return {}, []
+        sizes = []
+        for p in header_line.split():
+            with contextlib.suppress(ValueError):
+                sizes.append(int(p))
+        if not sizes:
+            return {}, []
+        rows = {}
+        for ln in data_lines:
+            if ln.strip().startswith("Done") or ln.strip().startswith("====="):
+                break
+            parts = ln.split()
+            if len(parts) < 2:
+                continue
+            kernel = parts[0]
+            try:
+                vals = [float(x) for x in parts[1:]]
+            except ValueError:
+                continue
+            if len(vals) != len(sizes):
+                continue
+            rows[kernel] = {str(s): v for s, v in zip(sizes, vals, strict=True)}
+        return rows, sizes
 
-    parts = header_line.split()
-    sizes = []
-    for p in parts:
-        with contextlib.suppress(ValueError):
-            sizes.append(int(p))
-    if not sizes:
-        return result
+    perf_rows, _ = _parse_kernel_by_size(perf_block)
+    result["performance"] = perf_rows
 
-    for line in data_lines:
-        if line.strip().startswith("Done"):
-            break
-        parts = line.split()
-        if len(parts) < 2:
-            continue
-        kernel = parts[0]
-        try:
-            gflops = [float(x) for x in parts[1:]]
-        except ValueError:
-            continue
-        if len(gflops) != len(sizes):
-            continue
-        result["performance"][kernel] = {str(s): g for s, g in zip(sizes, gflops, strict=True)}
+    # Optional: stddev table (CoV %)
+    m_std = re.search(r"Performance Stddev \([^)]*\)", text)
+    if m_std:
+        std_block = text[m_std.end():]
+        nxt = re.search(r"^=====", std_block, re.MULTILINE)
+        std_block = std_block[: nxt.start()] if nxt else std_block
+        std_rows, _ = _parse_kernel_by_size(std_block)
+        result["stddev_pct"] = std_rows
+
+    # Optional: detailed timing table at M=N=K=2048
+    m_det = re.search(r"Detailed Timing at M=N=K=2048[^\n]*\n", text)
+    if m_det:
+        det_block = text[m_det.end():]
+        nxt = re.search(r"^=====|^\nDone\.", det_block, re.MULTILINE)
+        det_block = det_block[: nxt.start()] if nxt else det_block
+        for line in det_block.splitlines():
+            s = line.strip()
+            if not s or set(s).issubset({"-", " ", "="}) or s.startswith("Kernel"):
+                continue
+            if s.startswith("Done"):
+                break
+            parts = line.split()
+            if len(parts) != 6:
+                continue
+            k = parts[0]
+            try:
+                mean, median, stddev, mn, mx = (float(x) for x in parts[1:])
+            except ValueError:
+                continue
+            result["detail_2048"][k] = {"mean": mean, "median": median, "stddev": stddev,
+                                        "min": mn, "max": mx}
 
     return result
 
